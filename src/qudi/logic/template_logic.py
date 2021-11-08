@@ -51,8 +51,20 @@ class TemplateLogic(LogicBase):
         self.__timer.timeout.disconnect()
         self.__timer = None
 
+    @property
+    def counter_value(self) -> int:
+        with self._mutex:
+            return self._counter_value
+
+    @QtCore.Slot(int)
     def add_to_counter(self, value: int) -> None:
         if value != 0:
             with self._mutex:
                 self._counter_value += value
                 self.sigCounterUpdated.emit(self._counter_value)
+
+    @QtCore.Slot()
+    def reset_counter(self) -> None:
+        with self._mutex:
+            self._counter_value = 0
+            self.sigCounterUpdated.emit(self._counter_value)
