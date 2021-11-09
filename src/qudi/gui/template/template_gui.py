@@ -13,12 +13,18 @@ from .template_main_window import TemplateMainWindow
 class TemplateGui(GuiBase):
     """ This is a simple template GUI measurement module for qudi.
     """
+    # Signal declaration for outgoing control signals to logic
+    sigAddToCounter = QtCore.Signal(int)  # add an integer value to the counter value
 
     # Connector declaration for a logic module to interact with
     _template_logic = Connector(name='template_logic', interface='TemplateLogic')
 
-    # Signal declaration for outgoing control signals to logic
-    sigAddToCounter = QtCore.Signal(int)  # add an integer value to the counter value
+    # Declare static parameters that can/must be declared in the qudi configuration
+    # _my_config_option = ConfigOption(name='my_config_option', default=1, missing='warn')
+
+    # Declare status variables that are saved in the AppStatus upon deactivation of the module and
+    # are initialized to the saved value again upon activation.
+    # _my_status_variable = StatusVar(name='my_status_variable', default=0)
 
     def on_activate(self) -> None:
         # initialize the main window

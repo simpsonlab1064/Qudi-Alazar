@@ -36,12 +36,15 @@ class TemplateLogic(LogicBase):
         self._mutex = Mutex()  # Mutex for access serialization
 
     def on_activate(self) -> None:
+        # Check if _increment_interval is not too small (lower boundary is 1.5 * trigger_time)
+        assert self._increment_interval >= 1.5 * self._template_hardware().trigger_time, \
+            'increment_interval must be >= 1.5 * <hardware trigger time>'
         # Set up a Qt timer to send periodic signals according to _increment_interval
         self.__timer = QtCore.QTimer(parent=self)
         self.__timer.setInterval(1000 * self._increment_interval)  # Interval in milliseconds
         self.__timer.setSingleShot(False)
         # Connect timeout signal to increment slot
-        self.__timer.timeout.connect(lambda: self.add_to_counter(1))
+        self.__timer.timeout.connect(lambda: self.add_to_counter(1), QtCore.Qt.QueuedConnection)
         # Start timer
         self.__timer.start()
 
@@ -60,8 +63,15 @@ class TemplateLogic(LogicBase):
     def add_to_counter(self, value: int) -> None:
         if value != 0:
             with self._mutex:
-                self._counter_value += value
-                self.sigCounterUpdated.emit(self._counter_value)
+                if value > 0:
+                    hardware = self._template_hardware()
+                    for i in range(value):
+                        hardware.send_trigger()
+                        self._counter_value += 1
+                        self.sigCounterUpdated.emit(self._counter_value)
+                else:
+                    self._counter_value += value
+                    self.sigCounterUpdated.emit(self._counter_value)
 
     @QtCore.Slot()
     def reset_counter(self) -> None:
