@@ -3,7 +3,9 @@
 
 ---
 
-A template repository to create your own pip-installable qudi namespace addon packages
+A template repository to create your own pip-installable qudi namespace addon packages.
+
+Replace this README.md with your own projects' readme.
 
 > __WARNING:__
 > 
