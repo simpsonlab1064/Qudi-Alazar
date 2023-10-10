@@ -2,17 +2,16 @@
 
 __all__ = ['TemplateGui']
 
-from PySide2 import QtCore, QtWidgets
+from PySide2 import QtCore
 
 from qudi.core.module import GuiBase
 from qudi.core.connector import Connector
-from .template_main_window import TemplateMainWindow
+from qudi.gui.template.template_main_window import TemplateMainWindow
 
 
 # qudi GUI measurement modules must inherit qudi.core.module.GuiBase or other GUI modules.
 class TemplateGui(GuiBase):
-    """ This is a simple template GUI measurement module for qudi.
-    """
+    """ This is a simple template GUI measurement module for qudi """
     # Signal declaration for outgoing control signals to logic
     sigAddToCounter = QtCore.Signal(int)  # add an integer value to the counter value
 
@@ -54,23 +53,18 @@ class TemplateGui(GuiBase):
         self.sigAddToCounter.disconnect()
         self._mw.add_ten_button.clicked.disconnect()
         self._mw.sub_ten_button.clicked.disconnect()
-        # Close main window and delete it
+        # Close main window
         self._mw.close()
-        self._mw = None
 
     def show(self) -> None:
-        """ Mandatory method to show the main window"""
+        """ Mandatory method to show the main window """
         self._mw.show()
         self._mw.raise_()
 
-    @QtCore.Slot()
     def _subtract_ten(self) -> None:
-        """ Qt slot to be called upon "-10" button press.
-        """
+        """ Qt slot to be called upon "-10" button press """
         self.sigAddToCounter.emit(-10)
 
-    @QtCore.Slot()
     def _add_ten(self) -> None:
-        """ Qt slot to be called upon "+10" button press.
-        """
+        """ Qt slot to be called upon "+10" button press """
         self.sigAddToCounter.emit(10)

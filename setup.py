@@ -9,18 +9,18 @@ from setuptools import setup, find_namespace_packages
 # e.g. qudi-core)
 unix_dep = [
     'wheel>=0.37.0',
-    'qudi-core>=1.0.0'
+    'qudi-core>=1.4.1',
     'numpy>=1.21.3',
-    'pyqtgraph>=0.12.3',
-    'PySide2==5.15.2',
+    'pyqtgraph>=0.13.0',
+    'PySide2==5.15.2.1',
 ]
 
 windows_dep = [
     'wheel>=0.37.0',
-    'qudi-core>=1.0.0'
+    'qudi-core>=1.4.1',
     'numpy>=1.21.3',
-    'pyqtgraph>=0.12.3',
-    'PySide2==5.15.2',
+    'pyqtgraph>=0.13.0',
+    'PySide2==5.15.2.1',
 ]
 
 # The version number of this package is derived from the content of the "VERSION" file located in
@@ -51,8 +51,7 @@ setup(
     version=version,  # Automatically deduced from "VERSION" file (see above)
     packages=find_namespace_packages(where='src'),  # This should be enough for 95% of the use-cases
     package_dir={'': 'src'},  # same
-    package_data={'': ['LICENSE', 'LICENSE.LESSER', 'README.md', 'VERSION'],  # include data files
-                  },
+    package_data={'': []},  # include data files
     description='A template package for qudi addons.',  # Meaningful short(!) description
     long_description=long_description,  # Detailed description is taken from "README.md" file
     long_description_content_type='text/markdown',  # Content type of "README.md" file
@@ -69,6 +68,6 @@ setup(
               ],
     license='LGPLv3',  # License tag
     install_requires=windows_dep if sys.platform == 'win32' else unix_dep,  # package dependencies
-    python_requires='~=3.8',  # Specify compatible Python versions
+    python_requires='>=3.8, <3.11',  # Specify compatible Python versions
     zip_safe=False
 )

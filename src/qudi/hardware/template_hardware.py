@@ -3,7 +3,6 @@
 __all__ = ['TemplateHardware']
 
 import time
-from PySide2 import QtCore
 
 from qudi.interface.template_interface import TemplateInterface
 from qudi.core.statusvariable import StatusVar
@@ -12,8 +11,7 @@ from qudi.util.mutex import Mutex
 
 
 class TemplateHardware(TemplateInterface):
-    """ This is a simple template hardware measurement module for qudi.
-    """
+    """ This is a simple template hardware measurement module for qudi """
 
     # Declare static parameters that can/must be declared in the qudi configuration
     _trigger_time = ConfigOption(name='trigger_time', default=0.001, missing='warn')
@@ -36,7 +34,6 @@ class TemplateHardware(TemplateInterface):
     def trigger_time(self) -> float:
         return self._trigger_time
 
-    @QtCore.Slot()
     def send_trigger(self) -> None:
         with self._mutex:
             time.sleep(self._trigger_time)

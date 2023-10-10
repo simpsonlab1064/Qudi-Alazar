@@ -2,7 +2,6 @@
 
 __all__ = ['TemplateInterface']
 
-from PySide2 import QtCore
 from abc import abstractmethod
 
 from qudi.core.module import Base
