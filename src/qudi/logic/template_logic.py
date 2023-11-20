@@ -14,6 +14,15 @@ from qudi.util.mutex import Mutex
 # qudi logic measurement modules must inherit qudi.core.module.LogicBase or other logic modules.
 class TemplateLogic(LogicBase):
     """ This is a simple template logic measurement module for qudi.
+
+    Example config that goes into the config file:
+
+    example_logic:
+        module.Class: 'template_logic.TemplateLogic'
+        options:
+            increment_interval: 2
+        connect:
+            template_hardware: dummy_hardware
     """
 
     # Declare signals to send events to other modules connecting to this module
