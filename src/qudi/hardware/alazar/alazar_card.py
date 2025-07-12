@@ -1,0 +1,398 @@
+# -*- coding: utf-8 -*-
+
+__all__ = ["AlazarCard"]
+
+import ctypes
+import time
+from PySide2 import QtCore
+from qudi.core.configoption import ConfigOption  # type: ignore
+from qudi.core.statusvariable import StatusVar  # type: ignore
+from qudi.util.mutex import RecursiveMutex  # type: ignore
+
+import qudi.hardware.alazar.Library.atsapi as ats
+from qudi.interface.alazar_interface import (
+    AlazarInterface,
+    ChannelInfo,
+    BoardInfo,
+    Coupling,
+    Range,
+    Termination,
+    AcquisitionMode,
+)
+
+
+class CombinedBoard:
+    info: BoardInfo
+    internal: ats.Board
+
+    def __init__(self, info: BoardInfo, internal: ats.Board):
+        self.info = info
+        self.internal = internal
+
+    def valid_conf(self) -> bool:
+        return self.info.count_enabled() > 0 and self.info.count_enabled() % 2 == 0
+
+
+class AlazarCard(AlazarInterface):
+    """
+    Interface for reading data from Alazar DAQ cards for experiments in the
+    Simpson lab. For other experiments, you likely need to update the call
+    to setCaptureClock with appropriate settings and the trigger settings
+
+    Example config for copy-paste:
+
+    alazar:
+        module.Class: 'alazar.alazar_card.AlazarCard'
+        options:
+            systemId: 1 # only if there are multiple systems (not just multiple cards)
+            clock: 1 # 0 for internal PLL, 1 for external
+            sample_rate: 50_000_000 # Sample rate for acquisition, in Hz
+            card_type: "c9440" # options are "c9440" or "c9350"
+            trigger_level: 160 # 0-255, 0-127 = negative range 128-255 = positive range
+            trigger_timeout: 5 # how long to wait (in seconds) for trigger before aborting, set to 0 for infinite
+    """
+
+    # Declare static parameters that can/must be declared in the qudi configuration
+    _trigger = ConfigOption(name="trigger", default=1, missing="warn")
+    _clock = ConfigOption(name="clock", default=1, missing="warn")
+    _sample_rate = ConfigOption(name="sample_rate", missing="error")
+    _systemId = ConfigOption(name="systemId", default=1, missing="info")
+    _card_type = ConfigOption(name="card_type", default="c9440", missing="warn")
+    _trigger_level = ConfigOption(name="trigger_level", default=160, missing="warn")
+    _trigger_timeout = ConfigOption(name="trigger_timeout", default=5, missing="info")
+
+    # run in separate thread
+    _threaded = True
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._thread_lock = RecursiveMutex()
+
+        self._boards: list[CombinedBoard] = []
+
+    def on_activate(self) -> None:
+        letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        for i in range(ats.boardsInSystemBySystemID(self._systemId)):
+            b = ats.Board(self._systemId, i + 1)
+            num_channels = b.getParameter(parameter=ats.GET_CHANNELS_PER_BOARD)  # type: ignore
+            chans = [
+                ChannelInfo(label=f"Channel {letters[i]}") for i in range(num_channels)
+            ]
+            info = BoardInfo(channels=chans, label=f"Board {i}")
+            self._boards.append(
+                CombinedBoard(
+                    info=info,
+                    internal=b,
+                )
+            )
+
+            self._decimation = 0
+            if self._card_type == "c9440":
+                self._decimation = 1
+
+            self._buffers: list[list[ats.DMABuffer]] = []
+            self._sample_type = ctypes.c_uint16
+
+    def on_deactivate(self) -> None:
+        for b in self._boards:
+            b.internal.abortAsyncRead()
+
+    @property
+    def boards_info(self) -> list[BoardInfo]:
+        """
+        Returns a list for how many boards are in the system that contains
+        information about how many channels each board has
+        """
+        return [i.info for i in self._boards]
+
+    @property
+    def running(self) -> bool:
+        """
+        Returns whether the card is currently acquiring data
+        """
+        return self.module_state() == "locked"
+
+    @property
+    def sample_rate(self) -> int:
+        return self._sample_rate
+
+    @property
+    def samples_per_buffer(self) -> int:
+        return self._samples_per_record * self._records_per_buffer
+
+    def set_samples_per_record(self, samples: int):
+        with self._thread_lock:
+            if self.module_state() == "idle":
+                self._samples_per_record = samples
+
+    def set_records_per_buffer(self, records: int):
+        with self._thread_lock:
+            if self.module_state() == "idle":
+                self._records_per_buffer = records
+
+    def set_records_per_acquisition(self, records: int):
+        with self._thread_lock:
+            if self.module_state() == "idle":
+                self._records_per_acquisition = records
+
+    def set_num_buffers(self, num_buffers: int):
+        with self._thread_lock:
+            if self.module_state() == "idle":
+                if num_buffers > 0:
+                    self._num_buffers = num_buffers
+                else:
+                    self._num_buffers = (
+                        self._records_per_acquisition * self._records_per_buffer
+                    )
+
+    @QtCore.Slot()
+    def start_acquisition(self):
+        if all([x.valid_conf() for x in self._boards]):
+            with self._thread_lock:
+                if self.module_state() == "idle":
+                    self.module_state.lock()
+                    self._configure_and_allocate()
+
+                    if self.module_state() == "locked":
+                        self._acquire_live_data()
+                        self.sigAcquisitionCompleted.emit()
+                        self.module_state.unlock()
+
+        else:
+            self.log.warning(
+                "Not all boards have allowed channels active (at least one channel and if more than one it must be a multiple of 2)"
+            )
+
+    @QtCore.Slot()
+    def start_live_acquisition(self):
+        if all([x.valid_conf() for x in self._boards]):
+            with self._thread_lock:
+                if self.module_state() == "idle":
+                    self.module_state.lock()
+                    self._configure_and_allocate()
+
+                    if self.module_state() == "locked":
+                        self._acquire_data()
+                        self.sigAcquisitionCompleted.emit()
+                        self.module_state.unlock()
+
+        else:
+            self.log.warning(
+                "Not all boards have allowed channels active (at least one channel and if more than one it must be a multiple of 2)"
+            )
+
+    @QtCore.Slot()
+    def stop_acquisition(self):
+        # with self._thread_lock:  # maybe we don't want to acquire the lock here...
+        if self.module_state() == "locked":
+            self.module_state.unlock()
+
+    def set_aux_out(self, high: bool):
+        self._boards[0].internal.configureAuxIO(  # type: ignore
+            mode=ats.AUX_OUT_SERIAL_DATA,
+            parameter=1 if high else 0,
+        )
+
+    @QtCore.Slot(AcquisitionMode)
+    def set_acqusition_flag(self, flag: AcquisitionMode):
+        with self._thread_lock:
+            if self.module_state() == "idle":
+                self._adma_flags = (
+                    ats.ADMA_INTERLEAVE_SAMPLES + ats.ADMA_EXTERNAL_STARTCAPTURE
+                )
+                if flag == AcquisitionMode.NPT:
+                    self._adma_flags += ats.ADMA_NPT
+
+                if flag == AcquisitionMode.TRIGGERED_STREAMING:
+                    self._adma_flags += ats.ADMA_TRIGGERED_STREAMING
+
+    @QtCore.Slot(list[BoardInfo])
+    def configure_boards(self, boards: list[BoardInfo]):
+        with self._thread_lock:
+            if self.module_state() == "idle":
+                for i in range(len(boards)):
+                    self._boards[i].info = boards[i]
+
+    def _configure_and_allocate(self):
+        """Expects mutex to be locked externally"""
+        if self.module_state() == "locked":
+            for b in self._boards:
+                self._configure_board(b)
+                if self.module_state() == "locked":
+                    if self._boards[0].internal.boardId != 1:
+                        raise ValueError("The first board passed should be the master.")
+                    for b in self._boards:
+                        if b.internal.systemId != self._boards[0].internal.systemId:
+                            raise ValueError(
+                                "All the boards should be of the same system."
+                            )
+                        self._buffers.clear()
+                        self._allocate_buffers(b)
+
+    def _configure_board(self, board: CombinedBoard):
+        board.internal.setCaptureClock(
+            source=ats.EXTERNAL_CLOCK_10MHz_REF
+            if self._clock == 0
+            else ats.FAST_EXTERNAL_CLOCK,
+            rate=self._sample_rate,
+            edge=ats.CLOCK_EDGE_RISING,
+            decimation=self._decimation,
+        )
+
+        numChannels = len(board.info.channels)
+
+        for i in range(numChannels):
+            if board.info.channels[i].enabled:
+                chan = board.info.channels[i]
+                coupling = (
+                    ats.DC_COUPLING if chan.coupling == Coupling.DC else ats.AC_COUPLING
+                )
+
+                r = -1
+
+                if chan.range == Range.PM_200_MV:
+                    r = ats.INPUT_RANGE_PM_200_MV
+                elif chan.range == Range.PM_500_MV:
+                    r = ats.INPUT_RANGE_PM_500_MV
+
+                elif chan.range == Range.PM_1_V:
+                    r = ats.INPUT_RANGE_PM_1_V
+
+                elif chan.range == Range.PM_5_V:
+                    r = ats.INPUT_RANGE_PM_5_V
+
+                if r < 0:
+                    raise ValueError(f"Range is set to an unknown value: {chan.range}")
+
+                impedance = (
+                    ats.IMPEDANCE_50_OHM
+                    if chan.termination == Termination.OHM_50
+                    else ats.IMPEDANCE_1M_OHM
+                )
+                board.internal.inputControlEx(
+                    channel=ats.channels[i],
+                    coupling=coupling,
+                    inputRange=r,
+                    impedance=impedance,
+                )
+
+        board.internal.setTriggerOperation(
+            ats.TRIG_ENGINE_OP_J,
+            ats.TRIG_ENGINE_J,
+            ats.TRIG_EXTERNAL,
+            ats.TRIGGER_SLOPE_POSITIVE,
+            self._trigger_level,
+            ats.TRIG_ENGINE_K,
+            ats.TRIG_DISABLE,
+            ats.TRIGGER_SLOPE_POSITIVE,
+            128,
+        )
+
+        board.internal.setExternalTrigger(
+            ats.DC_COUPLING,
+            ats.ETR_5V,
+        )
+
+        trigger_delay_samples = 0
+        board.internal.setTriggerDelay(trigger_delay_samples)
+
+        trigger_timeout_samples = self._trigger_timeout * self._sample_rate
+        board.internal.setTriggerTimeOut(trigger_timeout_samples)
+
+    def _allocate_buffers(self, board: CombinedBoard):
+        channel_count = board.info.count_enabled()
+        samples_per_buffer = self.samples_per_buffer
+
+        channels = 0
+
+        for i in range(len(board.info.channels)):
+            if board.info.channels[i].enabled:
+                channels += ats.channels[i]
+
+        # Compute the number of bytes per record and per buffer
+        memorySize_samples, bitsPerSample = board.internal.getChannelInfo()
+        bytesPerSample = (bitsPerSample.value + 7) // 8
+        bytesPerBuffer = bytesPerSample * samples_per_buffer * channel_count
+
+        self._sample_type = ctypes.c_uint8
+        if bytesPerSample > 1:
+            self._sample_type = ctypes.c_uint16
+
+        self._buffers.append([])
+
+        for _ in range(self._num_buffers):
+            self._buffers[-1].append(
+                ats.DMABuffer(
+                    board.internal.handle,
+                    sample_type,
+                    bytesPerBuffer,
+                )
+            )
+
+        board.internal.beforeAsyncRead(
+            channels,
+            0,
+            self._samples_per_record,
+            self._records_per_buffer,
+            self._records_per_acquisition,
+            self._adma_flags,
+        )
+
+        for buf in self._buffers[-1]:
+            board.internal.postAsyncBuffer(buf.addr, buf.size_bytes)
+
+    def _acquire_data(self):
+        start = time.time()
+
+        try:
+            self._boards[0].internal.startCapture()
+
+            self.set_aux_out(True)
+
+            i = 0
+
+            while i < self._num_buffers and self.module_state() == "locked":
+                self._data_transfer_loop(i)
+                i += 1
+
+        finally:
+            for b in self._boards:
+                b.internal.abortAsyncRead()
+
+        self.set_aux_out(False)
+
+        transfer_time = time.time() - start
+        self.log.info(f"Data collection finished in: {transfer_time}")
+
+    def _acquire_live_data(self):
+        try:
+            while self.module_state() == "locked":
+                self._boards[0].internal.startCapture()
+
+                self.set_aux_out(True)
+
+                i = 0
+
+                while i < self._num_buffers:
+                    self._data_transfer_loop(i)
+                    i += 1
+
+        finally:
+            for b in self._boards:
+                b.internal.abortAsyncRead()
+
+    def _data_transfer_loop(self, i: int):
+        for b in range(len(self._boards)):
+            timeout_ms = 5000
+            buf = self._buffers[b][i]
+
+            self._boards[b].internal.waitAsyncBufferComplete(buf.addr, timeout_ms)
+
+            # TODO: check if this needs a .copy() (or not)
+            # Maybe do the copy on the other end
+            self.sigNewData.emit(buf.buffer)
+
+            self._boards[b].internal.postAsyncBuffer(
+                buf.addr,
+                buf.size_bytes,
+            )
