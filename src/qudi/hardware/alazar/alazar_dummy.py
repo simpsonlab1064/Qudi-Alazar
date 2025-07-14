@@ -182,15 +182,27 @@ class AlazarDummy(AlazarInterface):
             )
 
             while i < self._num_buffers:
-                for _ in range(len(self._boards)):
-                    buf = np.random.rand(
-                        (self._samples_per_record * self._records_per_buffer)
+                for j in range(len(self._boards)):
+                    buf = self._generate_data(
+                        (
+                            self._samples_per_record
+                            * self._records_per_buffer
+                            * self._boards[j].count_enabled()
+                        )
                     )
 
-                    # TODO: check if this needs a .copy() (or not)
-                    # Maybe do the copy on the other end
                     self.sigNewData.emit(buf)
 
                     time.sleep(pause)
 
                 i += 1
+
+    def _generate_data(self, num_samples: int) -> np.ndarray:
+        buf = np.random.rand((self._samples_per_record * self._records_per_buffer))
+        # Bright stripe in the middle of the data
+        start = round(num_samples / 4)
+        end = round(3 * num_samples / 4)
+
+        buf[start:end] = buf[start:end] + 5
+
+        return buf

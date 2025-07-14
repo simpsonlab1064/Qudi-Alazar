@@ -1,19 +1,16 @@
 # -*- coding: utf-8 -*-
 
 __all__ = ["AlazarGalvoResControlGui"]
+from qudi.core.module import GuiBase
+from qudi.core.connector import Connector
+from qudi.util.paths import get_artwork_dir
 
+from qudi.logic.galvo_res_logic import GalvoResExperimentSettings, GalvoResLogic
 import os
 from PySide2 import QtCore, QtWidgets, QtGui
 import pyqtgraph as pg
 
 pg.setConfigOption("useOpenGL", True)  # Add this at the top of your file
-
-from qudi.core.module import GuiBase
-from qudi.core.connector import Connector
-from qudi.util.paths import get_artwork_dir
-
-from qudi.logic.base_alazar_logic import BoardInfo
-from qudi.logic.galvo_res_logic import GalvoResExperimentSettings, GalvoResLogic
 
 
 class GalvoResControlWindow(QtWidgets.QMainWindow):

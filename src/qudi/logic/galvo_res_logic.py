@@ -213,3 +213,6 @@ class GalvoResLogic(BaseAlazarLogic[GalvoResExperimentSettings]):
 
     def _initialize_data(self):
         super()._initialize_data()
+
+    def _update_display_data(self):
+        super()._update_display_data()

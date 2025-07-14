@@ -26,6 +26,9 @@ settings: All of the experimental settings for your measurement (image w/h,
 boards: List of boards in the system -- for determining measurement type / if
         a given channel is enabled
 
+The return should be an np.ndarray. If you intend to do imaging, it should have
+the shape [data_index][data] where [data] could be 1- or 2-dimensional
+
 """
 
 

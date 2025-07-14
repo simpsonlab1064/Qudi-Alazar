@@ -2,6 +2,14 @@
 
 __all__ = ["BaseAlazarLogic"]
 
+from qudi.core.module import LogicBase  # type: ignore
+from qudi.core.connector import Connector  # type: ignore
+from qudi.core.configoption import ConfigOption  # type: ignore
+from qudi.core.statusvariable import StatusVar  # type: ignore
+from qudi.util.datastorage import TextDataStorage  # type: ignore
+
+from qudi.interface.alazar_interface import BoardInfo, AlazarInterface, AcquisitionMode
+
 from PySide2 import QtCore
 from abc import ABC, abstractmethod
 from types import FunctionType
@@ -10,14 +18,7 @@ import numpy as np
 import os
 from pathlib import Path
 from importlib import import_module
-
-from qudi.core.module import LogicBase  # type: ignore
-from qudi.core.connector import Connector  # type: ignore
-from qudi.core.configoption import ConfigOption  # type: ignore
-from qudi.core.statusvariable import StatusVar  # type: ignore
-from qudi.util.datastorage import TextDataStorage  # type: ignore
-
-from qudi.interface.alazar_interface import BoardInfo, AlazarInterface, AcquisitionMode
+from enum import Enum, auto
 
 ExperimentSettings = TypeVar("ExperimentSettings", bound="BaseExperimentSettings")
 
@@ -46,6 +47,27 @@ class BaseExperimentSettings(ABC):
         self.do_autosave = do_autosave
         self.live_process_function = live_process_function
         self.end_process_function = end_process_function
+
+
+class DisplayType(Enum):
+    IMAGE: auto()  # type: ignore
+    LINE: auto()  # type: ignore
+
+
+class DisplayData:
+    """
+    Class to store data that is meant to be viewed (live or otherwise). Is mostly
+    just a convenient way to store a label next to the data it labels.
+    """
+
+    type: DisplayType
+    label: str
+    data: np.ndarray
+
+    def __init__(self, type: DisplayType = DisplayType.IMAGE, label: str = "", data: np.ndarray):
+        self.type = type
+        self.label = label
+        self.data = data
 
 
 class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
@@ -95,7 +117,7 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
     sigAcquisitionAborted = QtCore.Signal()
     sigProgressUpdated = QtCore.Signal(float)
     sigDataUpdated = QtCore.Signal(object)  # is list[np.ndarray]
-    sigImageDataUpdated = QtCore.Signal(object)  # is list[np.ndarray]
+    sigImageDataUpdated = QtCore.Signal(object)  # is list[DisplayData]
 
     # Declare connectors to other logic modules or hardware modules to interact with
     _alazar = Connector(name="alazar", interface="AlazarInterface")
@@ -104,6 +126,7 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
     _board_data_index: int = 0
     _buffer_index: int = 0
     _data: list[np.ndarray] = []
+    _display_data: list[DisplayData] = []
     _live_fn: FunctionType | None
     _end_fun = FunctionType | None
     _running_live: bool = False
@@ -204,7 +227,8 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
             if self._running_live:
                 # This assumes that the data is in a shape that is appropriate
                 # for imaging
-                self.sigImageDataUpdated.emit(self._data)
+                self._update_display_data()
+                self.sigImageDataUpdated.emit(self._display_data)
 
     @QtCore.Slot()
     @abstractmethod
@@ -223,7 +247,8 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
             self.save_data()
 
         if self._image_at_end:
-            self.sigImageDataUpdated.emit(self._data)
+            self._update_display_data()
+            self.sigImageDataUpdated.emit(self._display_data)
 
         self._running_live = False
 
@@ -236,6 +261,7 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
         """
         self._check_config()
         self._data = []
+        self._display_data = []
         self._board_data_index = 0
         self._buffer_index = 0
         self.sigAcquisitionStarted.emit()
@@ -382,17 +408,29 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
         for i in range(len(self._boards)):
             self._data.append(np.zeros(self._calculate_total_samples(i)))
 
-    # @_boards.constructor
-    # @staticmethod
-    # def _boards_constructor(_, yaml_data):
-    #     if len(yaml_data) > 0:
-    #         return BoardInfo.constructor_func(**yaml_data)
+    @abstractmethod
+    def _update_display_data(self):
+        """
+        Copies data from _data into _display data, and applies a basic label to it
+        """
+        self._display_data.clear()
+        for i in range(len(self._data)):
+            d = self._data[i]
+            t: DisplayType | None = None
+            if d.ndim == 1:
+                t = DisplayType.LINE
+            if d.ndim == 2:
+                t = DisplayType.IMAGE
 
-    # @_boards.representer
-    # @staticmethod
-    # def _boards_representer(_, boards: list[BoardInfo]) -> list[dict[str, object]]:
-    #     out: list[dict[str, object]] = []
-    #     for b in boards:
-    #         out.append(BoardInfo.representer_func(b))
-
-    #     return out
+            if t is None:
+                self.log.error(
+                    f"Data has wrong dimenions for imaging: {d.ndim}. It should have 1 or 2 dimensions."
+                )
+            else:
+                self._display_data.append(
+                    DisplayData(
+                        type=t,
+                        label=f"Data {i}",
+                        data=d
+                    )
+                )

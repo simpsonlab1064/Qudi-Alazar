@@ -10,9 +10,7 @@ This file contains a template for live-processing functions.
 
 Live functions _must_ conform to the function signature in this file and they
 must be in a file that has the same name as the function being called (e.g.
-template() is called from template.py). They also should specify __all__[]
-at the top of the file (like this one). This is technically optional, but is 
-good practice
+template() is called from template.py).
 
 You are welcome to put additional / helper functions in this file or wherever
 you would like (as long as you use full module paths to access them)
@@ -31,6 +29,9 @@ buffer_index: What buffer number are we on? (this increments once all boards hav
 board_index: Which board is this buffer from?
 boards: List of boards in the system -- for determining measurement type / if
         a given channel is enabled
+
+The return should be an np.ndarray. If you intend to do imaging, it should have
+the shape [data_index][data] where [data] could be 1- or 2-dimensional
 
 """
 
