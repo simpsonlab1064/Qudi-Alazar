@@ -34,6 +34,7 @@ class BaseExperimentSettings(ABC):
     do_autosave: bool
     live_process_function: str | None
     end_process_function: str | None
+    sample_rate: int
 
     @abstractmethod
     def __init__(
@@ -42,16 +43,56 @@ class BaseExperimentSettings(ABC):
         do_autosave: bool = False,
         live_process_function: str | None = None,
         end_process_function: str | None = None,
+        sample_rate: int = 50_000_000,
     ):
         self.autosave_file_path = autosave_file_path
         self.do_autosave = do_autosave
         self.live_process_function = live_process_function
         self.end_process_function = end_process_function
+        self.sample_rate = sample_rate
+
+
+class ImagingExperimentSettings(BaseExperimentSettings):
+    """
+    Meta-class that inficates the data will (or can be) imaged in a regular-ish
+    way.
+    """
+
+    width: int
+    height: int
+    mirror_period_us: float  # in us
+    fast_mirror_phase: float
+
+    @abstractmethod
+    def __init__(
+        self,
+        width: int,
+        height: int,
+        autosave_file_path: str | None = None,
+        do_autosave: bool = False,
+        live_process_function: str | None = None,
+        end_process_function: str | None = None,
+        sample_rate: int = 50_000_000,
+        mirror_period_us: float = 1000.0,
+        fast_mirror_phase: float = 0,
+    ):
+        self.width = width
+        self.height = height
+        self.mirror_period_us = mirror_period_us
+        self.fast_mirror_phase = 0
+
+        super().__init__(
+            autosave_file_path,
+            do_autosave,
+            live_process_function,
+            end_process_function,
+            sample_rate,
+        )
 
 
 class DisplayType(Enum):
-    IMAGE: auto()  # type: ignore
-    LINE: auto()  # type: ignore
+    IMAGE = auto()
+    LINE = auto()
 
 
 class DisplayData:
@@ -64,10 +105,21 @@ class DisplayData:
     label: str
     data: np.ndarray
 
-    def __init__(self, type: DisplayType = DisplayType.IMAGE, label: str = "", data: np.ndarray):
+    def __init__(
+        self,
+        data: np.ndarray,
+        type: DisplayType = DisplayType.IMAGE,
+        label: str = "",
+    ):
         self.type = type
         self.label = label
         self.data = data
+
+    def add_data(self, data: np.ndarray):
+        self.data = self.data + data
+
+    def divide_data(self, divisor: float):
+        self.data = self.data / divisor
 
 
 class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
@@ -90,7 +142,7 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
                            # hit an overrun
 
             image_at_end: True # if the end_function produces data that is appropriate for imaging
-            live_viewing_fn: template_live_view # Function to use for live-viewing results
+            live_viewing_fn: imaging # Function to use for live-viewing results
     """
 
     # Config Values:
@@ -113,6 +165,7 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
     # Declare signals to send events to other modules connecting to this module
     sigBoardInfo = QtCore.Signal(object)  # is a list[BoardInfo]
     sigAcquisitionStarted = QtCore.Signal()
+    sigLiveAcquisitionStarted = QtCore.Signal()
     sigAcquisitionCompleted = QtCore.Signal()
     sigAcquisitionAborted = QtCore.Signal()
     sigProgressUpdated = QtCore.Signal(float)
@@ -148,6 +201,10 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
             alazar.start_acquisition, QtCore.Qt.QueuedConnection
         )
 
+        self.sigLiveAcquisitionStarted.connect(
+            alazar.start_live_acquisition, QtCore.Qt.QueuedConnection
+        )
+
         self.sigAcquisitionAborted.connect(
             alazar.stop_acquisition,
             QtCore.Qt.DirectConnection,  # needs to be direct
@@ -168,7 +225,7 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
             self._boards = boards
 
         self.sigBoardInfo.emit(self._boards)
-        self._sample_rate = alazar.sample_rate
+        self._settings.sample_rate = alazar.sample_rate
 
     @abstractmethod
     def on_deactivate(self) -> None:
@@ -222,13 +279,12 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
 
         self._board_data_index += 1
         if board_idx == len(self._boards) - 1:
-            self._buffer_index += 1
-            self.sigDataUpdated.emit(self._data)
             if self._running_live:
                 # This assumes that the data is in a shape that is appropriate
                 # for imaging
                 self._update_display_data()
-                self.sigImageDataUpdated.emit(self._display_data)
+            self._buffer_index += 1
+            self.sigDataUpdated.emit(self._data)
 
     @QtCore.Slot()
     @abstractmethod
@@ -274,18 +330,17 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
 
     @QtCore.Slot()
     @abstractmethod
-    def start_live_acquisition(self, buffers_to_avg: int):
+    def start_live_acquisition(self):
         """
         This clears data before starting, so if you want to initialize
         arrays, do it after calling super().start_live_acquisition()
         """
-
         self._check_config()
         self._data = []
         self._board_data_index = 0
         self._buffer_index = 0
         self._running_live = True
-        self.sigAcquisitionStarted.emit()
+        self.sigLiveAcquisitionStarted.emit()
 
     @QtCore.Slot()
     @abstractmethod
@@ -428,9 +483,7 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
                 )
             else:
                 self._display_data.append(
-                    DisplayData(
-                        type=t,
-                        label=f"Data {i}",
-                        data=d
-                    )
+                    DisplayData(type=t, label=f"Data {i}", data=d)
                 )
+
+        self.sigImageDataUpdated.emit(self._display_data)

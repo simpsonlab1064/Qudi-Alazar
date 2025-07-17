@@ -1,10 +1,3 @@
-import numpy as np
-
-"""
-Copied from: https://github.com/ml31415/numpy-groupies so we don't need to install
-via pip as we only care about numpy implementations.
-"""
-
 from processing_functions.util.numpy_groupies.utils import (
     aggregate_common_doc,
     aliasing,
@@ -20,6 +13,13 @@ from processing_functions.util.numpy_groupies.utils import (
     minimum_dtype_scalar,
     minval,
 )
+
+import numpy as np
+
+"""
+Copied from: https://github.com/ml31415/numpy-groupies so we don't need to install
+via pip as we only care about numpy implementations.
+"""
 
 
 def _sum(group_idx, a, size, fill_value, dtype=None):

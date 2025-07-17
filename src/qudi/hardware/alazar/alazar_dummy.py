@@ -3,7 +3,6 @@
 __all__ = ["AlazarDummy"]
 
 import numpy as np
-from qudi.core.module import Base  # type: ignore
 import time
 from PySide2 import QtCore
 from qudi.util.mutex import RecursiveMutex  # type: ignore
@@ -115,9 +114,11 @@ class AlazarDummy(AlazarInterface):
 
     @QtCore.Slot()
     def start_live_acquisition(self):
-        self._acquire_live_data()
+        if self.module_state() == "idle":
+            self.module_state.lock()
+            self._acquire_live_data()
 
-        self.sigAcquisitionCompleted.emit()
+            self.sigAcquisitionCompleted.emit()
 
     @QtCore.Slot()
     def stop_acquisition(self):
@@ -153,12 +154,13 @@ class AlazarDummy(AlazarInterface):
 
         while i < self._num_buffers and self.module_state() == "locked":
             for j in range(len(self._boards)):
-                buf = np.random.rand(
+                buf = self._generate_data(
                     (
                         self._samples_per_record
                         * self._records_per_buffer
                         * self._boards[j].count_enabled()
-                    )
+                    ),
+                    j,
                 )
 
                 # TODO: check if this needs a .copy() (or not)
@@ -188,7 +190,8 @@ class AlazarDummy(AlazarInterface):
                             self._samples_per_record
                             * self._records_per_buffer
                             * self._boards[j].count_enabled()
-                        )
+                        ),
+                        j,
                     )
 
                     self.sigNewData.emit(buf)
@@ -197,12 +200,12 @@ class AlazarDummy(AlazarInterface):
 
                 i += 1
 
-    def _generate_data(self, num_samples: int) -> np.ndarray:
-        buf = np.random.rand((self._samples_per_record * self._records_per_buffer))
+    def _generate_data(self, num_samples: int, board_idx: int) -> np.ndarray:
+        buf = np.random.rand(num_samples)
         # Bright stripe in the middle of the data
         start = round(num_samples / 4)
         end = round(3 * num_samples / 4)
 
-        buf[start:end] = buf[start:end] + 5
+        buf[start:end] = buf[start:end] + 5 * (board_idx + 1)
 
         return buf

@@ -171,7 +171,7 @@ class AlazarGalvoResControlGui(GuiBase):
         settings = logic.experiment_info
 
         self._mw.fast_mirror_phase.setValue(settings.fast_mirror_phase)
-        self._mw.scan_period_us.setValue(settings.scan_period_us)
+        self._mw.scan_period_us.setValue(settings.mirror_period_us)
         self._mw.image_height.setValue(settings.height)
         self._mw.image_width.setValue(settings.width)
         self._mw.number_frames.setValue(settings.num_frames)
@@ -205,6 +205,7 @@ class AlazarGalvoResControlGui(GuiBase):
         logic.sigAcquisitionAborted.connect(self._measurement_finished)
         logic.sigAcquisitionCompleted.connect(self._measurement_finished)
         logic.sigAcquisitionStarted.connect(self._measurement_started)
+        logic.sigLiveAcquisitionStarted.connect(self._measurement_started)
         logic.sigProgressUpdated.connect(self._progress_update)
         # Outputs
         self.sigStartMeasurement.connect(

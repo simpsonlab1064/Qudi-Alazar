@@ -3,13 +3,13 @@ __all__ = ["AlazarChannelGui"]
 from qudi.core.module import GuiBase
 from qudi.core.connector import Connector
 
-from qudi.logic.base_alazar_logic import BoardInfo
 from qudi.interface.alazar_interface import (
     Range,
     Coupling,
     Termination,
     MeasurementType,
     ChannelInfo,
+    BoardInfo,
 )
 
 from PySide2 import QtCore, QtWidgets

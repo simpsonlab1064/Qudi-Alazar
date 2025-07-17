@@ -7,15 +7,17 @@ import numpy as np
 
 from qudi.core.configoption import ConfigOption  # type: ignore
 from qudi.core.statusvariable import StatusVar  # type: ignore
-from qudi.logic.base_alazar_logic import BaseAlazarLogic, BaseExperimentSettings
+from qudi.logic.base_alazar_logic import (
+    BaseAlazarLogic,
+    ImagingExperimentSettings,
+    DisplayType,
+)
 from qudi.interface.alazar_interface import BoardInfo, AcquisitionMode
 
 
-class GalvoResExperimentSettings(BaseExperimentSettings):
-    fast_mirror_phase: float
-    scan_period_us: float
-    width: int
-    height: int
+# Note: do_series is currently unused as I don't know what it's actually for.
+# Adding it in should be pretty doable once I know what purpose it serves
+class GalvoResExperimentSettings(ImagingExperimentSettings):
     num_frames: int
     series_length: int
     do_series: bool
@@ -25,7 +27,7 @@ class GalvoResExperimentSettings(BaseExperimentSettings):
     def __init__(
         self,
         fast_mirror_phase: float = 0,
-        scan_period_us: float = 66.8,
+        mirror_period_us: float = 66.8,
         width: int = 512,
         height: int = 512,
         num_frames: int = 1,
@@ -36,8 +38,6 @@ class GalvoResExperimentSettings(BaseExperimentSettings):
         live_processing_function: str | None = None,
         end_processing_function: str | None = None,
     ):
-        self.fast_mirror_phase = fast_mirror_phase
-        self.scan_period_us = scan_period_us
         self.width = width
         self.height = height
         self.num_frames = num_frames
@@ -45,20 +45,24 @@ class GalvoResExperimentSettings(BaseExperimentSettings):
         self.do_series = do_series
 
         super().__init__(
+            width=width,
+            height=height,
             autosave_file_path=autosave_file_path,
             do_autosave=do_autosave,
             live_process_function=live_processing_function,
             end_process_function=end_processing_function,
+            fast_mirror_phase=fast_mirror_phase,
+            mirror_period_us=mirror_period_us,
         )
 
     def scan_freq_hz(self) -> float:
-        return 1e6 / self.scan_period_us
+        return 1e6 / self.mirror_period_us
 
     @staticmethod
     def representer_func(instance: GalvoResExperimentSettings) -> list[object]:
         return [
             instance.fast_mirror_phase,
-            instance.scan_period_us,
+            instance.mirror_period_us,
             instance.width,
             instance.height,
             instance.num_frames,
@@ -146,16 +150,16 @@ class GalvoResLogic(BaseAlazarLogic[GalvoResExperimentSettings]):
         super().start_acquisition()
 
     @QtCore.Slot(int)
-    def start_live_acquisition(self, buffers_to_avg: int):
+    def start_live_acquisition(self):
         live_settings = self._settings
-        live_settings.num_frames = buffers_to_avg
+        live_settings.num_frames = self._settings.num_frames
         live_settings.live_process_function = self._live_viewing_fn
         self._apply_configuration(
             settings=live_settings,
             mode=AcquisitionMode.NPT,
-            num_buffers=buffers_to_avg,
+            num_buffers=self._settings.num_frames,
         )
-        super().start_live_acquisition(buffers_to_avg)
+        super().start_live_acquisition()
 
     @QtCore.Slot()
     def stop_acquisition(self):
@@ -190,7 +194,9 @@ class GalvoResLogic(BaseAlazarLogic[GalvoResExperimentSettings]):
         """Note that this is per-channel"""
         samps: float = 0
         samples_per_line = (
-            1e3 * self._settings.scan_period_us / (1e9 / float(self._sample_rate))
+            1e3
+            * self._settings.mirror_period_us
+            / (1e9 / float(self._settings.sample_rate))
         )
 
         samps = samples_per_line * float(self._settings.height)
@@ -215,4 +221,5 @@ class GalvoResLogic(BaseAlazarLogic[GalvoResExperimentSettings]):
         super()._initialize_data()
 
     def _update_display_data(self):
-        super()._update_display_data()
+        if self._buffer_index % self._settings.num_frames == 0:
+            super()._update_display_data()

@@ -19,6 +19,7 @@ pg.setConfigOption("useOpenGL", True)
 class AlazarDisplayWindow(QtWidgets.QMainWindow):
     sigSelectChannel = QtCore.Signal(int)
     _data: list[DisplayData]
+    _selected_idx: int = 0
 
     def __init__(self, settings: BaseExperimentSettings, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -49,13 +50,26 @@ class AlazarDisplayWindow(QtWidgets.QMainWindow):
 
     def update_data(self, data: list[DisplayData]):
         self._data = data
-        self.data_selection.clear()
 
-        for i, e in enumerate(self._data):
-            if e.type == DisplayType.IMAGE:
-                self.data_selection.insertItem(i, e.label, e.label)
+        if not self.data_selection.count() == len(data):
+            self.data_selection.clear()
+            self._selected_idx = 0
+
+            for i, e in enumerate(self._data):
+                if e.type == DisplayType.IMAGE:
+                    self.data_selection.insertItem(i, e.label, e.label)
+
+        else:
+            # Assume the channels haven't changed meanining if they are of the
+            # same length (good assumption?)
+            if len(self._data) > 0:
+                self._select_data(self._selected_idx)
+
+        if self.data_selection.count() > self._selected_idx:
+            self._select_data(self._selected_idx)
 
     def _select_data(self, idx: int):
+        self._selected_idx = idx
         self.image.setImage(self._data[idx].data)
 
 
