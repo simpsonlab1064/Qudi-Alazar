@@ -3,11 +3,15 @@ __all__ = ["imaging"]
 import numpy as np
 import numpy.typing as npt
 
-from qudi.logic.base_alazar_logic import ImagingExperimentSettings
+from qudi.logic.experiment_defs import ImagingExperimentSettings
 from qudi.interface.alazar_interface import BoardInfo
 from processing_functions.util.sine_time_to_pix_num import sine_time_to_pix_num
 from processing_functions.util.voltage_average_image import voltage_average_image
 from processing_functions.util.numpy_groupies.aggregate_numpy import aggregate  # type: ignore
+from processing_functions.util.processing_defs import (
+    ProcessedData,
+    LiveProcessingInterface,
+)
 
 """
 This file contains a template for live-processing functions.
@@ -21,7 +25,7 @@ you would like (as long as you use full module paths to access them)
 
 The arguments are as follows:
 
-data: An array containing the previous data from the acquisition. Note that it
+data: ProcessedData containing the previous data from the acquisition. Note that it
       will be empty on the first buffer as there is no data yet
 buf: Array containing the most recently acquired buffer
 settings: All of the experimental settings for your measurement (image w/h,
@@ -34,7 +38,7 @@ board_index: Which board is this buffer from?
 boards: List of boards in the system -- for determining measurement type / if
         a given channel is enabled
 
-The return should be an np.ndarray. If you intend to do imaging, it should have
+The return should be a ProcessedData. If you intend to do imaging, it should have
 the shape [data_index][data] where [data] could be 1- or 2-dimensional and 
 [data_index] indicates something of meaning to you about the images (board,
 channel, polarization, some combination of those, ... )
@@ -42,14 +46,14 @@ channel, polarization, some combination of those, ... )
 """
 
 
-def imaging(
-    data: npt.NDArray[np.float_],
+def _imaging(
+    data: ProcessedData,
     buf: npt.NDArray[np.int_],
     settings: ImagingExperimentSettings,
     buffer_index: int,
     board_index: int,
     boards: list[BoardInfo],
-) -> npt.NDArray[np.float_]:
+) -> ProcessedData:
     """
     Modifies data in-place, averaging for the specified number of frames. Expects
     buf to be data for a single frame
@@ -74,7 +78,11 @@ def imaging(
 
     # Initialize on first buffer / board and every time we've finished averaging
     if buffer_index % settings.num_frames == 0 and board_index == 0:
-        data = np.zeros((np.sum(total_enabled), w, h))
+        temp = np.zeros((w, h))
+        data_list: list[npt.NDArray[np.float_]] = []
+        for _ in range(np.sum(total_enabled)):
+            data_list.append(temp)
+        data = ProcessedData(data=data_list)
 
     pulses_per_pixel = aggregate(t, 1)  # type: ignore
 
@@ -86,8 +94,11 @@ def imaging(
             temp_image = voltage_average_image(temp, t, pulses_per_pixel, h, w, 1)  # type: ignore
             idx = np.sum(total_enabled[:board_index], dtype=int) + i
 
-            data[idx, :, :] += temp_image / settings.num_frames
+            data.data[idx][:, :] += temp_image / settings.num_frames
 
             i += 1
 
     return data
+
+
+imaging = LiveProcessingInterface[ImagingExperimentSettings].from_function(_imaging)

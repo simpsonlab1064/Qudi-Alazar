@@ -8,10 +8,8 @@ import numpy.typing as npt
 
 from qudi.core.configoption import ConfigOption  # type: ignore
 from qudi.core.statusvariable import StatusVar  # type: ignore
-from qudi.logic.base_alazar_logic import (
-    BaseAlazarLogic,
-    ImagingExperimentSettings,
-)
+from qudi.logic.base_alazar_logic import BaseAlazarLogic
+from qudi.logic.experiment_defs import ImagingExperimentSettings
 from qudi.interface.alazar_interface import BoardInfo, AcquisitionMode
 
 

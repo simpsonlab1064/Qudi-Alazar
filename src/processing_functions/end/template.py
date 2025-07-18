@@ -1,7 +1,13 @@
+__all__ = ["template"]
+
 import numpy as np
 import numpy.typing as npt
 from qudi.logic.base_alazar_logic import BaseExperimentSettings
 from qudi.interface.alazar_interface import BoardInfo
+from processing_functions.util.processing_defs import (
+    ProcessedData,
+    EndProcessingInterface,
+)
 
 """
 This file contains a template for end-processing functions.
@@ -15,30 +21,26 @@ you would like (as long as you use full module paths to access them)
 
 The arguments are as follows:
 
-data: An array containing all of the data from the acquisition. It is organized
-      like [boardId, data]. If multiple channels are enabled, the data is
-      interleaved. If you are using a live-processing function along with an end
-      processing function, you are responsible for making sure the end function
-      knows what the layout of the data is.
+data: ProcessedData from the utility folder definition
 settings: All of the experimental settings for your measurement (image w/h,
           number of frames, ...). Probably you should type hint the correct
           ExperimentSettings for what you're doing.
 boards: List of boards in the system -- for determining measurement type / if
         a given channel is enabled
 
-The return should be an np.ndarray. If you intend to do imaging, it should have
-the shape [data_index][data] where [data] could be 1- or 2-dimensional
+The return should be a ProcessedData object
 
 """
 
 
-def template(
+# Functions must use the variable names here (data, settings, boards)
+def _template(
     data: npt.NDArray[
         np.float_
-    ],  # Note: this could also be a np.int_ depending on your use case. It should match the return type
+    ],  # Note: this could also be a np.int_ depending on your use case
     settings: BaseExperimentSettings,
     boards: list[BoardInfo],
-) -> npt.NDArray[np.float_]:
+) -> ProcessedData:
     out = np.zeros((512 * 512,))
     for i, b in enumerate(boards):
         d = data[i]
@@ -49,4 +51,8 @@ def template(
                 out = out + temp
                 c_idx += 1
     np.reshape(out, (512, 512))
-    return out
+
+    return ProcessedData(data=[out])
+
+
+template = EndProcessingInterface[BaseExperimentSettings].from_function(_template)

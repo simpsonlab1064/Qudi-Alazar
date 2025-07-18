@@ -10,120 +10,24 @@ from qudi.util.datastorage import TextDataStorage  # type: ignore
 
 from qudi.interface.alazar_interface import BoardInfo, AlazarInterface, AcquisitionMode
 
+from qudi.logic.experiment_defs import (
+    BaseExperimentSettings,
+    ExperimentSettings,
+    DisplayData,
+    DisplayType,
+)
+
+from processing_functions.util.processing_defs import ProcessedData
+
 from PySide2 import QtCore
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from types import FunctionType
-from typing import TypeVar, Generic
+from typing import Generic
 import numpy as np
 import numpy.typing as npt
 import os
 from pathlib import Path
 from importlib import import_module
-from enum import Enum, auto
-
-ExperimentSettings = TypeVar("ExperimentSettings", bound="BaseExperimentSettings")
-
-
-class BaseExperimentSettings(ABC):
-    """
-    Each type of expriment _must_ implement this class for passing to processing
-    functions (live or end). E.g. for GalvoResLogic there should also be a
-    GalvoResExperimentSettings that defines relevant information
-    """
-
-    autosave_file_path: str | None
-    do_autosave: bool
-    live_process_function: str | None
-    end_process_function: str | None
-    sample_rate: int
-
-    @abstractmethod
-    def __init__(
-        self,
-        autosave_file_path: str | None = None,
-        do_autosave: bool = False,
-        live_process_function: str | None = None,
-        end_process_function: str | None = None,
-        sample_rate: int = 50_000_000,
-    ):
-        self.autosave_file_path = autosave_file_path
-        self.do_autosave = do_autosave
-        self.live_process_function = live_process_function
-        self.end_process_function = end_process_function
-        self.sample_rate = sample_rate
-
-
-class ImagingExperimentSettings(BaseExperimentSettings):
-    """
-    Meta-class that inficates the data will (or can be) imaged in a regular-ish
-    way.
-    """
-
-    width: int
-    height: int
-    mirror_period_us: float  # in us
-    fast_mirror_phase: float
-    num_frames: int
-
-    @abstractmethod
-    def __init__(
-        self,
-        width: int,
-        height: int,
-        autosave_file_path: str | None = None,
-        do_autosave: bool = False,
-        live_process_function: str | None = None,
-        end_process_function: str | None = None,
-        sample_rate: int = 50_000_000,
-        mirror_period_us: float = 1000.0,
-        fast_mirror_phase: float = 0,
-        num_frames: int = 1,
-    ):
-        self.width = width
-        self.height = height
-        self.mirror_period_us = mirror_period_us
-        self.fast_mirror_phase = 0
-        self.num_frames = num_frames
-
-        super().__init__(
-            autosave_file_path,
-            do_autosave,
-            live_process_function,
-            end_process_function,
-            sample_rate,
-        )
-
-
-class DisplayType(Enum):
-    IMAGE = auto()
-    LINE = auto()
-
-
-class DisplayData:
-    """
-    Class to store data that is meant to be viewed (live or otherwise). Is mostly
-    just a convenient way to store a label next to the data it labels.
-    """
-
-    type: DisplayType
-    label: str
-    data: npt.NDArray[np.float_]
-
-    def __init__(
-        self,
-        data: npt.NDArray[np.float_],
-        type: DisplayType = DisplayType.IMAGE,
-        label: str = "",
-    ):
-        self.type = type
-        self.label = label
-        self.data = data
-
-    def add_data(self, data: npt.NDArray[np.float_]):
-        self.data = self.data + data
-
-    def divide_data(self, divisor: float):
-        self.data = self.data / divisor
 
 
 class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
@@ -173,7 +77,9 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
     sigAcquisitionCompleted = QtCore.Signal()
     sigAcquisitionAborted = QtCore.Signal()
     sigProgressUpdated = QtCore.Signal(float)
-    sigDataUpdated = QtCore.Signal(object)  # is list[np.ndarray]
+    sigDataUpdated = QtCore.Signal(
+        object
+    )  # is a ProcessedData (even if it is the raw data)
     sigImageDataUpdated = QtCore.Signal(object)  # is list[DisplayData]
 
     # Declare connectors to other logic modules or hardware modules to interact with
@@ -182,7 +88,7 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
     _settings: ExperimentSettings
     _board_data_index: int = 0
     _buffer_index: int = 0
-    _data: list[npt.NDArray[np.float_]] = []
+    _data: ProcessedData = ProcessedData(data=[])
     _display_data: list[DisplayData] = []
     _live_fn: FunctionType | None
     _end_fun = FunctionType | None
@@ -279,7 +185,7 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
                 * self._boards[board_idx].count_enabled()
             )
 
-            self._data[board_idx][start_idx:end_idx] = buf[:]
+            self._data.data[board_idx][start_idx:end_idx] = buf[:]
 
         self._board_data_index += 1
 
@@ -322,7 +228,7 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
         arrays, do it after calling super().start_acquisition()
         """
         self._check_config()
-        self._data = []
+        self._data = ProcessedData(data=[])
         self._display_data = []
         self._board_data_index = 0
         self._buffer_index = 0
@@ -342,7 +248,7 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
         arrays, do it after calling super().start_live_acquisition()
         """
         self._check_config()
-        self._data = []
+        self._data = ProcessedData(data=[])
         self._board_data_index = 0
         self._buffer_index = 0
         self._running_live = True
@@ -469,9 +375,11 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
 
     @abstractmethod
     def _initialize_data(self):
-        self._data.clear()
+        data: list[npt.NDArray[np.int_]] = []
         for i in range(len(self._boards)):
-            self._data.append(np.zeros(self._calculate_total_samples(i)))
+            data.append(np.zeros(self._calculate_total_samples(i), dtype=np.int_))
+
+        self._data = ProcessedData(data=data)
 
     @abstractmethod
     def _update_display_data(self):
@@ -479,8 +387,8 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
         Copies data from _data into _display data, and applies a basic label to it
         """
         self._display_data.clear()
-        for i in range(len(self._data)):
-            d = self._data[i]
+        for i in range(len(self._data.data)):
+            d = self._data.data[i]
             t: DisplayType | None = None
             if d.ndim == 1:
                 t = DisplayType.LINE
@@ -492,8 +400,9 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
                     f"Data has wrong dimenions for imaging: {d.ndim}. It should have 1 or 2 dimensions."
                 )
             else:
-                self._display_data.append(
-                    DisplayData(type=t, label=f"Data {i}", data=d)
+                label = (
+                    self._data.labels[i] if len(self._data.labels) > i else f"Data {i}"
                 )
+                self._display_data.append(DisplayData(type=t, label=label, data=d))
 
         self.sigImageDataUpdated.emit(self._display_data)  # type: ignore
