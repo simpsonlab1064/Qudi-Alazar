@@ -1,12 +1,13 @@
 __all__ = ["imaging"]
 
 import numpy as np
+import numpy.typing as npt
 
 from qudi.logic.base_alazar_logic import ImagingExperimentSettings
 from qudi.interface.alazar_interface import BoardInfo
 from processing_functions.util.sine_time_to_pix_num import sine_time_to_pix_num
 from processing_functions.util.voltage_average_image import voltage_average_image
-from processing_functions.util.numpy_groupies.aggregate_numpy import aggregate
+from processing_functions.util.numpy_groupies.aggregate_numpy import aggregate  # type: ignore
 
 """
 This file contains a template for live-processing functions.
@@ -42,15 +43,16 @@ channel, polarization, some combination of those, ... )
 
 
 def imaging(
-    data: np.ndarray,
-    buf: np.ndarray,
+    data: npt.NDArray[np.float_],
+    buf: npt.NDArray[np.int_],
     settings: ImagingExperimentSettings,
     buffer_index: int,
     board_index: int,
     boards: list[BoardInfo],
-) -> np.ndarray:
+) -> npt.NDArray[np.float_]:
     """
-    Modifies data in-place, averaging for the specified number of frames
+    Modifies data in-place, averaging for the specified number of frames. Expects
+    buf to be data for a single frame
     """
     num_samples = round(len(buf) / boards[board_index].count_enabled())
     h = settings.height
@@ -70,22 +72,21 @@ def imaging(
     for b in boards:
         total_enabled.append(b.count_enabled())
 
-    # Initialize on first buffer / board
-    if buffer_index == 0 and board_index == 0:
+    # Initialize on first buffer / board and every time we've finished averaging
+    if buffer_index % settings.num_frames == 0 and board_index == 0:
         data = np.zeros((np.sum(total_enabled), w, h))
 
-    pulses_per_pixel = aggregate(t, 1)
+    pulses_per_pixel = aggregate(t, 1)  # type: ignore
 
-    # out = np.zeros((num_enabled, w, h))
     i = 0
 
     for c in boards[board_index].channels:
         if c.enabled:
             temp = buf[i::num_enabled]  # note that in numpy it is start:stop:step
-            temp_image = voltage_average_image(temp, t, pulses_per_pixel, h, w, 1)
+            temp_image = voltage_average_image(temp, t, pulses_per_pixel, h, w, 1)  # type: ignore
             idx = np.sum(total_enabled[:board_index], dtype=int) + i
 
-            data[idx, :, :] = temp_image
+            data[idx, :, :] += temp_image / settings.num_frames
 
             i += 1
 

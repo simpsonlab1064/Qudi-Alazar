@@ -15,6 +15,7 @@ from abc import ABC, abstractmethod
 from types import FunctionType
 from typing import TypeVar, Generic
 import numpy as np
+import numpy.typing as npt
 import os
 from pathlib import Path
 from importlib import import_module
@@ -62,6 +63,7 @@ class ImagingExperimentSettings(BaseExperimentSettings):
     height: int
     mirror_period_us: float  # in us
     fast_mirror_phase: float
+    num_frames: int
 
     @abstractmethod
     def __init__(
@@ -75,11 +77,13 @@ class ImagingExperimentSettings(BaseExperimentSettings):
         sample_rate: int = 50_000_000,
         mirror_period_us: float = 1000.0,
         fast_mirror_phase: float = 0,
+        num_frames: int = 1,
     ):
         self.width = width
         self.height = height
         self.mirror_period_us = mirror_period_us
         self.fast_mirror_phase = 0
+        self.num_frames = num_frames
 
         super().__init__(
             autosave_file_path,
@@ -103,11 +107,11 @@ class DisplayData:
 
     type: DisplayType
     label: str
-    data: np.ndarray
+    data: npt.NDArray[np.float_]
 
     def __init__(
         self,
-        data: np.ndarray,
+        data: npt.NDArray[np.float_],
         type: DisplayType = DisplayType.IMAGE,
         label: str = "",
     ):
@@ -115,7 +119,7 @@ class DisplayData:
         self.label = label
         self.data = data
 
-    def add_data(self, data: np.ndarray):
+    def add_data(self, data: npt.NDArray[np.float_]):
         self.data = self.data + data
 
     def divide_data(self, divisor: float):
@@ -158,8 +162,8 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
     _boards: list[BoardInfo] = StatusVar(
         name="boards",
         default=[],
-        constructor=lambda yaml: [BoardInfo.constructor_func(i) for i in yaml],
-        representer=lambda data: [BoardInfo.representer_func(i) for i in data],
+        constructor=lambda yaml: [BoardInfo.constructor_func(i) for i in yaml],  # type: ignore
+        representer=lambda data: [BoardInfo.representer_func(i) for i in data],  # type: ignore
     )  # type: ignore
 
     # Declare signals to send events to other modules connecting to this module
@@ -178,39 +182,39 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
     _settings: ExperimentSettings
     _board_data_index: int = 0
     _buffer_index: int = 0
-    _data: list[np.ndarray] = []
+    _data: list[npt.NDArray[np.float_]] = []
     _display_data: list[DisplayData] = []
     _live_fn: FunctionType | None
     _end_fun = FunctionType | None
     _running_live: bool = False
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, *args, **kwargs):  # type: ignore
+        super().__init__(*args, **kwargs)  # type: ignore
 
     @abstractmethod
     def on_activate(self) -> None:
         alazar: AlazarInterface = self._alazar()
         #### INPUTS #####
-        alazar.sigNewData.connect(self._new_alazar_data, QtCore.Qt.QueuedConnection)
-        alazar.sigAcquisitionCompleted.connect(
+        alazar.sigNewData.connect(self._new_alazar_data, QtCore.Qt.QueuedConnection)  # type: ignore
+        alazar.sigAcquisitionCompleted.connect(  # type: ignore
             self._acquisition_completed, QtCore.Qt.QueuedConnection
         )
 
         #### OUTPUTS #####
-        self.sigAcquisitionStarted.connect(
+        self.sigAcquisitionStarted.connect(  # type: ignore
             alazar.start_acquisition, QtCore.Qt.QueuedConnection
         )
 
-        self.sigLiveAcquisitionStarted.connect(
+        self.sigLiveAcquisitionStarted.connect(  # type: ignore
             alazar.start_live_acquisition, QtCore.Qt.QueuedConnection
         )
 
-        self.sigAcquisitionAborted.connect(
+        self.sigAcquisitionAborted.connect(  # type: ignore
             alazar.stop_acquisition,
             QtCore.Qt.DirectConnection,  # needs to be direct
         )
 
-        self.sigBoardInfo.connect(alazar.configure_boards, QtCore.Qt.QueuedConnection)
+        self.sigBoardInfo.connect(alazar.configure_boards, QtCore.Qt.QueuedConnection)  # type: ignore
 
         # Get board info:
         boards = alazar.boards_info
@@ -224,7 +228,7 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
         else:
             self._boards = boards
 
-        self.sigBoardInfo.emit(self._boards)
+        self.sigBoardInfo.emit(self._boards)  # type: ignore
         self._settings.sample_rate = alazar.sample_rate
 
     @abstractmethod
@@ -241,15 +245,15 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
     def experiment_info(self) -> ExperimentSettings:
         return self._settings
 
-    @QtCore.Slot(object)
+    @QtCore.Slot(object)  # type: ignore
     @abstractmethod
     def update_boards(self, boards: list[BoardInfo]):
         self._boards = boards
-        self.sigBoardInfo.emit(self._boards)
+        self.sigBoardInfo.emit(self._boards)  # type: ignore
 
-    @QtCore.Slot(np.ndarray)
+    @QtCore.Slot(np.ndarray)  # type: ignore
     @abstractmethod
-    def _new_alazar_data(self, buf: np.ndarray):
+    def _new_alazar_data(self, buf: npt.NDArray[np.int_]):
         board_idx = self._board_data_index % len(self._boards)
 
         if self._live_fn is not None:
@@ -278,19 +282,21 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
             self._data[board_idx][start_idx:end_idx] = buf[:]
 
         self._board_data_index += 1
+
         if board_idx == len(self._boards) - 1:
+            self._buffer_index += 1
             if self._running_live:
                 # This assumes that the data is in a shape that is appropriate
                 # for imaging
                 self._update_display_data()
-            self._buffer_index += 1
-            self.sigDataUpdated.emit(self._data)
 
-    @QtCore.Slot()
+            self.sigDataUpdated.emit(self._data)  # type: ignore
+
+    @QtCore.Slot()  # type: ignore
     @abstractmethod
     def _acquisition_completed(self):
-        self.sigAcquisitionCompleted.emit()
-        self.sigProgressUpdated.emit(100.0)
+        self.sigAcquisitionCompleted.emit()  # type: ignore
+        self.sigProgressUpdated.emit(100.0)  # type: ignore
 
         if self._end_fn is not None:
             self._data = self._end_fn(
@@ -304,11 +310,11 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
 
         if self._image_at_end:
             self._update_display_data()
-            self.sigImageDataUpdated.emit(self._display_data)
+            self.sigImageDataUpdated.emit(self._display_data)  # type: ignore
 
         self._running_live = False
 
-    @QtCore.Slot()
+    @QtCore.Slot()  # type: ignore
     @abstractmethod
     def start_acquisition(self):
         """
@@ -320,7 +326,7 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
         self._display_data = []
         self._board_data_index = 0
         self._buffer_index = 0
-        self.sigAcquisitionStarted.emit()
+        self.sigAcquisitionStarted.emit()  # type: ignore
 
         if self._live_fn is None:
             self.log.info(
@@ -328,7 +334,7 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
             )
             self._initialize_data()
 
-    @QtCore.Slot()
+    @QtCore.Slot()  # type: ignore
     @abstractmethod
     def start_live_acquisition(self):
         """
@@ -340,15 +346,15 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
         self._board_data_index = 0
         self._buffer_index = 0
         self._running_live = True
-        self.sigLiveAcquisitionStarted.emit()
+        self.sigLiveAcquisitionStarted.emit()  # type: ignore
 
-    @QtCore.Slot()
+    @QtCore.Slot()  # type: ignore
     @abstractmethod
     def stop_acquisition(self):
         self._running_live = False
-        self.sigAcquisitionAborted.emit()
+        self.sigAcquisitionAborted.emit()  # type: ignore
 
-    @QtCore.Slot(BaseExperimentSettings)
+    @QtCore.Slot(BaseExperimentSettings)  # type: ignore
     @abstractmethod
     def configure_acquisition(
         self,
@@ -360,10 +366,14 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
     def _calculate_samples_per_record(self) -> int:
         pass
 
-    @QtCore.Slot()
+    @QtCore.Slot()  # type: ignore
     @abstractmethod
     def save_data(self):
-        path = Path(self._settings.autosave_file_path)
+        path = Path(
+            self._settings.autosave_file_path
+            if self._settings.autosave_file_path is not None
+            else ""
+        )
         os.makedirs(path.parent)
 
         storage = TextDataStorage(
@@ -374,7 +384,7 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
             include_global_metadata=False,
         )
 
-        storage.save_data(self._data, filename=path.absolute())
+        storage.save_data(self._data, filename=path.absolute())  # type: ignore
 
     @abstractmethod
     def _check_config(self):
@@ -486,4 +496,4 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
                     DisplayData(type=t, label=f"Data {i}", data=d)
                 )
 
-        self.sigImageDataUpdated.emit(self._display_data)
+        self.sigImageDataUpdated.emit(self._display_data)  # type: ignore

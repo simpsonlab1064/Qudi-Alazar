@@ -6,7 +6,6 @@ import ctypes
 import time
 from PySide2 import QtCore
 from qudi.core.configoption import ConfigOption  # type: ignore
-from qudi.core.statusvariable import StatusVar  # type: ignore
 from qudi.util.mutex import RecursiveMutex  # type: ignore
 
 import qudi.hardware.alazar.Library.atsapi as ats
@@ -53,30 +52,42 @@ class AlazarCard(AlazarInterface):
     """
 
     # Declare static parameters that can/must be declared in the qudi configuration
-    _trigger = ConfigOption(name="trigger", default=1, missing="warn")
-    _clock = ConfigOption(name="clock", default=1, missing="warn")
-    _sample_rate = ConfigOption(name="sample_rate", missing="error")
-    _systemId = ConfigOption(name="systemId", default=1, missing="info")
-    _card_type = ConfigOption(name="card_type", default="c9440", missing="warn")
-    _trigger_level = ConfigOption(name="trigger_level", default=160, missing="warn")
-    _trigger_timeout = ConfigOption(name="trigger_timeout", default=5, missing="info")
+    _trigger: int = ConfigOption(name="trigger", default=1, missing="warn")  # type: ignore
+
+    _clock: int = ConfigOption(name="clock", default=1, missing="warn")  # type: ignore
+
+    _sample_rate: int = ConfigOption(name="sample_rate", missing="error")  # type: ignore
+
+    _systemId: int = ConfigOption(name="systemId", default=1, missing="info")  # type: ignore
+
+    _card_type: str = ConfigOption(name="card_type", default="c9440", missing="warn")  # type: ignore
+
+    _trigger_level: int = ConfigOption(
+        name="trigger_level", default=160, missing="warn"
+    )  # type: ignore
+
+    _trigger_timeout: float = ConfigOption(
+        name="trigger_timeout", default=5, missing="info"
+    )  # type: ignore
 
     # run in separate thread
     _threaded = True
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, *args, **kwargs):  # type: ignore
+        super().__init__(*args, **kwargs)  # type: ignore
+
         self._thread_lock = RecursiveMutex()
 
         self._boards: list[CombinedBoard] = []
 
     def on_activate(self) -> None:
         letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        for i in range(ats.boardsInSystemBySystemID(self._systemId)):
+        for i in range(ats.boardsInSystemBySystemID(self._systemId)):  # type: ignore
             b = ats.Board(self._systemId, i + 1)
             num_channels = b.getParameter(parameter=ats.GET_CHANNELS_PER_BOARD)  # type: ignore
             chans = [
-                ChannelInfo(label=f"Channel {letters[i]}") for i in range(num_channels)
+                ChannelInfo(label=f"Channel {letters[i]}")
+                for i in range(num_channels)  # type: ignore
             ]
             info = BoardInfo(channels=chans, label=f"Board {i}")
             self._boards.append(
@@ -145,7 +156,7 @@ class AlazarCard(AlazarInterface):
                         self._records_per_acquisition * self._records_per_buffer
                     )
 
-    @QtCore.Slot()
+    @QtCore.Slot()  # type: ignore
     def start_acquisition(self):
         if all([x.valid_conf() for x in self._boards]):
             with self._thread_lock:
@@ -155,7 +166,8 @@ class AlazarCard(AlazarInterface):
 
                     if self.module_state() == "locked":
                         self._acquire_live_data()
-                        self.sigAcquisitionCompleted.emit()
+                        self.sigAcquisitionCompleted.emit()  # type: ignore
+
                         self.module_state.unlock()
 
         else:
@@ -163,7 +175,7 @@ class AlazarCard(AlazarInterface):
                 "Not all boards have allowed channels active (at least one channel and if more than one it must be a multiple of 2)"
             )
 
-    @QtCore.Slot()
+    @QtCore.Slot()  # type: ignore
     def start_live_acquisition(self):
         if all([x.valid_conf() for x in self._boards]):
             with self._thread_lock:
@@ -173,7 +185,8 @@ class AlazarCard(AlazarInterface):
 
                     if self.module_state() == "locked":
                         self._acquire_data()
-                        self.sigAcquisitionCompleted.emit()
+                        self.sigAcquisitionCompleted.emit()  # type: ignore
+
                         self.module_state.unlock()
 
         else:
@@ -181,7 +194,7 @@ class AlazarCard(AlazarInterface):
                 "Not all boards have allowed channels active (at least one channel and if more than one it must be a multiple of 2)"
             )
 
-    @QtCore.Slot()
+    @QtCore.Slot()  # type: ignore
     def stop_acquisition(self):
         # with self._thread_lock:  # maybe we don't want to acquire the lock here...
         if self.module_state() == "locked":
@@ -193,7 +206,7 @@ class AlazarCard(AlazarInterface):
             parameter=1 if high else 0,
         )
 
-    @QtCore.Slot(AcquisitionMode)
+    @QtCore.Slot(AcquisitionMode)  # type: ignore
     def set_acqusition_flag(self, flag: AcquisitionMode):
         with self._thread_lock:
             if self.module_state() == "idle":
@@ -206,7 +219,7 @@ class AlazarCard(AlazarInterface):
                 if flag == AcquisitionMode.TRIGGERED_STREAMING:
                     self._adma_flags += ats.ADMA_TRIGGERED_STREAMING
 
-    @QtCore.Slot(list[BoardInfo])
+    @QtCore.Slot(list[BoardInfo])  # type: ignore
     def configure_boards(self, boards: list[BoardInfo]):
         with self._thread_lock:
             if self.module_state() == "idle":
@@ -230,7 +243,7 @@ class AlazarCard(AlazarInterface):
                         self._allocate_buffers(b)
 
     def _configure_board(self, board: CombinedBoard):
-        board.internal.setCaptureClock(
+        board.internal.setCaptureClock(  # type: ignore
             source=ats.EXTERNAL_CLOCK_10MHz_REF
             if self._clock == 0
             else ats.FAST_EXTERNAL_CLOCK,
@@ -269,14 +282,14 @@ class AlazarCard(AlazarInterface):
                     if chan.termination == Termination.OHM_50
                     else ats.IMPEDANCE_1M_OHM
                 )
-                board.internal.inputControlEx(
+                board.internal.inputControlEx(  # type: ignore
                     channel=ats.channels[i],
                     coupling=coupling,
                     inputRange=r,
                     impedance=impedance,
                 )
 
-        board.internal.setTriggerOperation(
+        board.internal.setTriggerOperation(  # type: ignore
             ats.TRIG_ENGINE_OP_J,
             ats.TRIG_ENGINE_J,
             ats.TRIG_EXTERNAL,
@@ -288,16 +301,16 @@ class AlazarCard(AlazarInterface):
             128,
         )
 
-        board.internal.setExternalTrigger(
+        board.internal.setExternalTrigger(  # type: ignore
             ats.DC_COUPLING,
             ats.ETR_5V,
         )
 
         trigger_delay_samples = 0
-        board.internal.setTriggerDelay(trigger_delay_samples)
+        board.internal.setTriggerDelay(trigger_delay_samples)  # type: ignore
 
         trigger_timeout_samples = self._trigger_timeout * self._sample_rate
-        board.internal.setTriggerTimeOut(trigger_timeout_samples)
+        board.internal.setTriggerTimeOut(trigger_timeout_samples)  # type: ignore
 
     def _allocate_buffers(self, board: CombinedBoard):
         channel_count = board.info.count_enabled()
@@ -310,7 +323,7 @@ class AlazarCard(AlazarInterface):
                 channels += ats.channels[i]
 
         # Compute the number of bytes per record and per buffer
-        memorySize_samples, bitsPerSample = board.internal.getChannelInfo()
+        _, bitsPerSample = board.internal.getChannelInfo()
         bytesPerSample = (bitsPerSample.value + 7) // 8
         bytesPerBuffer = bytesPerSample * samples_per_buffer * channel_count
 
@@ -324,12 +337,12 @@ class AlazarCard(AlazarInterface):
             self._buffers[-1].append(
                 ats.DMABuffer(
                     board.internal.handle,
-                    sample_type,
+                    self._sample_type,
                     bytesPerBuffer,
                 )
             )
 
-        board.internal.beforeAsyncRead(
+        board.internal.beforeAsyncRead(  # type: ignore
             channels,
             0,
             self._samples_per_record,
@@ -339,7 +352,7 @@ class AlazarCard(AlazarInterface):
         )
 
         for buf in self._buffers[-1]:
-            board.internal.postAsyncBuffer(buf.addr, buf.size_bytes)
+            board.internal.postAsyncBuffer(buf.addr, buf.size_bytes)  # type: ignore
 
     def _acquire_data(self):
         start = time.time()
@@ -386,13 +399,13 @@ class AlazarCard(AlazarInterface):
             timeout_ms = 5000
             buf = self._buffers[b][i]
 
-            self._boards[b].internal.waitAsyncBufferComplete(buf.addr, timeout_ms)
+            self._boards[b].internal.waitAsyncBufferComplete(buf.addr, timeout_ms)  # type: ignore
 
             # TODO: check if this needs a .copy() (or not)
             # Maybe do the copy on the other end
-            self.sigNewData.emit(buf.buffer)
+            self.sigNewData.emit(buf.buffer)  # type: ignore
 
-            self._boards[b].internal.postAsyncBuffer(
+            self._boards[b].internal.postAsyncBuffer(  # type: ignore
                 buf.addr,
-                buf.size_bytes,
+                buf.size_bytes,  # type: ignore # TODO: This might be wrong / empty. CHECK
             )

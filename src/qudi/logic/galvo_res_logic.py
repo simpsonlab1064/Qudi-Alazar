@@ -4,13 +4,13 @@ __all__ = ["GalvoResLogic"]
 
 from PySide2 import QtCore
 import numpy as np
+import numpy.typing as npt
 
 from qudi.core.configoption import ConfigOption  # type: ignore
 from qudi.core.statusvariable import StatusVar  # type: ignore
 from qudi.logic.base_alazar_logic import (
     BaseAlazarLogic,
     ImagingExperimentSettings,
-    DisplayType,
 )
 from qudi.interface.alazar_interface import BoardInfo, AcquisitionMode
 
@@ -18,7 +18,6 @@ from qudi.interface.alazar_interface import BoardInfo, AcquisitionMode
 # Note: do_series is currently unused as I don't know what it's actually for.
 # Adding it in should be pretty doable once I know what purpose it serves
 class GalvoResExperimentSettings(ImagingExperimentSettings):
-    num_frames: int
     series_length: int
     do_series: bool
     live_process_function: str | None
@@ -40,7 +39,6 @@ class GalvoResExperimentSettings(ImagingExperimentSettings):
     ):
         self.width = width
         self.height = height
-        self.num_frames = num_frames
         self.series_length = series_length
         self.do_series = do_series
 
@@ -53,6 +51,7 @@ class GalvoResExperimentSettings(ImagingExperimentSettings):
             end_process_function=end_processing_function,
             fast_mirror_phase=fast_mirror_phase,
             mirror_period_us=mirror_period_us,
+            num_frames=num_frames,
         )
 
     def scan_freq_hz(self) -> float:
@@ -76,7 +75,7 @@ class GalvoResExperimentSettings(ImagingExperimentSettings):
 
     @staticmethod
     def constructor_func(yaml_data: object) -> GalvoResExperimentSettings:
-        return GalvoResExperimentSettings(*yaml_data)
+        return GalvoResExperimentSettings(*yaml_data)  # type: ignore
 
 
 class GalvoResLogic(BaseAlazarLogic[GalvoResExperimentSettings]):
@@ -110,8 +109,8 @@ class GalvoResLogic(BaseAlazarLogic[GalvoResExperimentSettings]):
 
     _min_mod: float = ConfigOption(name="min_mod", default=1e-12, missing="info")  # type: ignore
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, *args, **kwargs):  # type: ignore
+        super().__init__(*args, **kwargs)  # type: ignore
 
     def on_activate(self) -> None:
         super().on_activate()
@@ -127,20 +126,20 @@ class GalvoResLogic(BaseAlazarLogic[GalvoResExperimentSettings]):
     def experiment_info(self) -> GalvoResExperimentSettings:
         return super().experiment_info
 
-    @QtCore.Slot(object)
+    @QtCore.Slot(object)  # type: ignore
     def update_boards(self, boards: list[BoardInfo]):
         self._boards = boards
-        self.sigBoardInfo.emit(self._boards)
+        self.sigBoardInfo.emit(self._boards)  # type: ignore
 
-    @QtCore.Slot(np.ndarray)
-    def _new_alazar_data(self, buf: np.ndarray):
+    @QtCore.Slot(np.ndarray)  # type: ignore
+    def _new_alazar_data(self, buf: npt.NDArray[np.int_]):
         super()._new_alazar_data(buf)
 
-    @QtCore.Slot()
+    @QtCore.Slot()  # type: ignore
     def _acquisition_completed(self):
         super()._acquisition_completed()
 
-    @QtCore.Slot()
+    @QtCore.Slot()  # type: ignore
     def start_acquisition(self):
         self._apply_configuration(
             settings=self._settings,
@@ -149,7 +148,7 @@ class GalvoResLogic(BaseAlazarLogic[GalvoResExperimentSettings]):
         )
         super().start_acquisition()
 
-    @QtCore.Slot(int)
+    @QtCore.Slot(int)  # type: ignore
     def start_live_acquisition(self):
         live_settings = self._settings
         live_settings.num_frames = self._settings.num_frames
@@ -161,15 +160,15 @@ class GalvoResLogic(BaseAlazarLogic[GalvoResExperimentSettings]):
         )
         super().start_live_acquisition()
 
-    @QtCore.Slot()
+    @QtCore.Slot()  # type: ignore
     def stop_acquisition(self):
         super().stop_acquisition()
 
-    @QtCore.Slot(object)
+    @QtCore.Slot(object)  # type: ignore
     def configure_acquisition(self, settings: GalvoResExperimentSettings):
         super().configure_acquisition(settings)
 
-    @QtCore.Slot()
+    @QtCore.Slot()  # type: ignore
     def save_data(self):
         super().save_data()
 

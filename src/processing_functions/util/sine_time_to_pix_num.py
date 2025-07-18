@@ -1,10 +1,14 @@
 __all__ = ["sine_time_to_pix_num"]
 import numpy as np
+import numpy.typing as npt
 
 
 def sine_time_to_pix_num(
-    time: np.ndarray, pixels_per_line: int, mirror_period: float, fast_phase: float
-) -> np.ndarray:
+    time: npt.NDArray[np.float_],
+    pixels_per_line: int,
+    mirror_period: float,
+    fast_phase: float,
+) -> npt.NDArray[np.int_]:
     """
     Converts an array of times to pixel locations assuming sinusoidal motion of the
     mirror

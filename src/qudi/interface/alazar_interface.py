@@ -37,7 +37,7 @@ class AcquisitionMode(Enum):
 
 
 class MeasurementType(Enum):
-    UNUSED = 0
+    GENERIC = 0
     AVERAGING = 1
     PHOTON_COUNTING = 2
 
@@ -47,7 +47,7 @@ class ChannelInfo:
     termination: Termination
     range: Range
     enabled: bool = False
-    measurement_type: MeasurementType = MeasurementType.UNUSED
+    measurement_type: MeasurementType = MeasurementType.GENERIC
     label: str
 
     def __init__(
@@ -56,7 +56,7 @@ class ChannelInfo:
         range: Range = Range.PM_200_MV,
         coupling: Coupling = Coupling.DC,
         enabled: bool = False,
-        measurement_type: MeasurementType = MeasurementType.UNUSED,
+        measurement_type: MeasurementType = MeasurementType.GENERIC,
         label: str = "",
     ):
         self.coupling = coupling
@@ -89,9 +89,9 @@ class ChannelInfo:
             term=Termination(yaml_data[0]),
             range=Range(yaml_data[1]),
             coupling=Coupling(yaml_data[2]),
-            enabled=yaml_data[3],
+            enabled=bool(yaml_data[3]),
             measurement_type=MeasurementType(yaml_data[4]),
-            label=yaml_data[5],
+            label=str(yaml_data[5]),
         )
 
 
@@ -136,9 +136,9 @@ class BoardInfo:
     def constructor_func(yaml_data: list[object]) -> BoardInfo:
         label = yaml_data.pop()
         chans = []
-        for val in yaml_data[0]:
-            chans.append(ChannelInfo.constructor_func(val))
-        return BoardInfo(channels=chans, label=label)
+        for val in yaml_data[0]:  # type: ignore
+            chans.append(ChannelInfo.constructor_func(val))  # type: ignore
+        return BoardInfo(channels=chans, label=label)  # type: ignore
 
 
 class AlazarInterface(Base):
@@ -208,17 +208,17 @@ class AlazarInterface(Base):
     def set_num_buffers(self, num_buffers: int):
         pass
 
-    @QtCore.Slot()
+    @QtCore.Slot()  # type: ignore
     @abstractmethod
     def start_acquisition(self):
         pass
 
-    @QtCore.Slot()
+    @QtCore.Slot()  # type: ignore
     @abstractmethod
     def start_live_acquisition(self):
         pass
 
-    @QtCore.Slot()
+    @QtCore.Slot()  # type: ignore
     @abstractmethod
     def stop_acquisition(self):
         pass
@@ -227,12 +227,12 @@ class AlazarInterface(Base):
     def set_aux_out(self, high: bool):
         pass
 
-    @QtCore.Slot(object)
+    @QtCore.Slot(object)  # type: ignore
     @abstractmethod
     def set_acqusition_flag(self, flag: AcquisitionMode):
         pass
 
-    @QtCore.Slot(object)
+    @QtCore.Slot(object)  # type: ignore
     @abstractmethod
     def configure_boards(self, boards: list[BoardInfo]):
         """

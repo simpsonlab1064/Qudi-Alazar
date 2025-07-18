@@ -1,7 +1,7 @@
 __all__ = ["AlazarChannelGui"]
 
-from qudi.core.module import GuiBase
-from qudi.core.connector import Connector
+from qudi.core.module import GuiBase  # type: ignore
+from qudi.core.connector import Connector  # type: ignore
 
 from qudi.interface.alazar_interface import (
     Range,
@@ -19,8 +19,8 @@ class ChannelTile(QtWidgets.QWidget):
     sigSettingsChanged = QtCore.Signal(object)  # is a ChannelInfo
     _channel: ChannelInfo
 
-    def __init__(self, channel: ChannelInfo, label: str, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, channel: ChannelInfo, label: str, *args, **kwargs):  # type: ignore
+        super().__init__(*args, **kwargs)  # type: ignore
         self._channel = channel
 
         self._inner_frame = QtWidgets.QGroupBox(title=label)
@@ -102,8 +102,7 @@ class ChannelTile(QtWidgets.QWidget):
             self._measurement_type.findData(channel.measurement_type)
         )
 
-        # chan.addWidget(self._name)
-        chan.addWidget(self._enabled, alignment=QtCore.Qt.AlignHCenter)
+        chan.addWidget(self._enabled, alignment=QtCore.Qt.AlignHCenter)  # type: ignore
 
         chan.addWidget(self._range_label)
         chan.addWidget(self._range)
@@ -117,12 +116,12 @@ class ChannelTile(QtWidgets.QWidget):
         chan.addWidget(measurement_type_label)
         chan.addWidget(self._measurement_type)
 
-        self._enabled.toggled.connect(self._enabled_change)
-        self._range.currentIndexChanged.connect(self._range_change)
-        self._measurement_type.currentIndexChanged.connect(self._type_change)
+        self._enabled.toggled.connect(self._enabled_change)  # type: ignore
+        self._range.currentIndexChanged.connect(self._range_change)  # type: ignore
+        self._measurement_type.currentIndexChanged.connect(self._type_change)  # type: ignore
 
-        self._coupling_ac.toggled.connect(self._coupling_change)
-        self._term_50_ohm.toggled.connect(self._term_change)
+        self._coupling_ac.toggled.connect(self._coupling_change)  # type: ignore
+        self._term_50_ohm.toggled.connect(self._term_change)  # type: ignore
 
         self._inner_frame.setLayout(chan)
 
@@ -133,25 +132,25 @@ class ChannelTile(QtWidgets.QWidget):
 
     def _type_change(self, _: int):
         self._channel.measurement_type = self._measurement_type.currentData()
-        self.sigSettingsChanged.emit(self._channel)
+        self.sigSettingsChanged.emit(self._channel)  # type: ignore
 
     def _range_change(self, _: int):
         self._channel.range = self._range.currentData()
-        self.sigSettingsChanged.emit(self._channel)
+        self.sigSettingsChanged.emit(self._channel)  # type: ignore
 
     def _coupling_change(self, _: bool):
         c = Coupling.AC if self._coupling_ac.isChecked() else Coupling.DC
         self._channel.coupling = c
-        self.sigSettingsChanged.emit(self._channel)
+        self.sigSettingsChanged.emit(self._channel)  # type: ignore
 
     def _term_change(self, _: bool):
         t = Termination.OHM_50 if self._term_50_ohm.isChecked() else Termination.OHM_1M
         self._channel.termination = t
-        self.sigSettingsChanged.emit(self._channel)
+        self.sigSettingsChanged.emit(self._channel)  # type: ignore
 
     def _enabled_change(self, check: bool):
         self._channel.enabled = check
-        self.sigSettingsChanged.emit(self._channel)
+        self.sigSettingsChanged.emit(self._channel)  # type: ignore
 
 
 class BoardPanel(QtWidgets.QWidget):
@@ -159,8 +158,8 @@ class BoardPanel(QtWidgets.QWidget):
     _board: BoardInfo
     _panels: list[QtWidgets.QWidget]
 
-    def __init__(self, board: BoardInfo, label: str, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, board: BoardInfo, label: str, *args, **kwargs):  # type: ignore
+        super().__init__(*args, **kwargs)  # type: ignore
         self._board = board
 
         frame = QtWidgets.QGroupBox(title=label)
@@ -171,8 +170,8 @@ class BoardPanel(QtWidgets.QWidget):
             chan = ChannelTile(c, c.label)
             chans.addWidget(chan)
 
-            chan.sigSettingsChanged.connect(
-                lambda c, idx=i: self._channel_update(idx, c)
+            chan.sigSettingsChanged.connect(  # type: ignore
+                lambda c, idx=i: self._channel_update(idx, c)  # type: ignore
             )
 
         frame.setLayout(chans)
@@ -186,7 +185,7 @@ class BoardPanel(QtWidgets.QWidget):
 
     def _channel_update(self, idx: int, chan: ChannelInfo):
         self._board.channels[idx] = chan
-        self.sigSettingsChanged.emit(self._board)
+        self.sigSettingsChanged.emit(self._board)  # type: ignore
 
 
 class AlazarChannelWindow(QtWidgets.QMainWindow):
@@ -194,8 +193,8 @@ class AlazarChannelWindow(QtWidgets.QMainWindow):
     _boards: list[BoardInfo]
     _widgets: list[QtWidgets.QWidget] = []
 
-    def __init__(self, boards: list[BoardInfo], *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, boards: list[BoardInfo], *args, **kwargs):  # type: ignore
+        super().__init__(*args, **kwargs)  # type: ignore
         self.setWindowTitle("Alazar Channel Controls")
 
         self._boards = boards
@@ -205,7 +204,7 @@ class AlazarChannelWindow(QtWidgets.QMainWindow):
         for i, b in enumerate(self._boards):
             w = BoardPanel(b, b.label)
             layout.addWidget(w)
-            w.sigSettingsChanged.connect(lambda b, idx=i: self._board_update(idx, b))
+            w.sigSettingsChanged.connect(lambda b, idx=i: self._board_update(idx, b))  # type: ignore
 
         central_widget = QtWidgets.QWidget()
         central_widget.setLayout(layout)
@@ -213,7 +212,7 @@ class AlazarChannelWindow(QtWidgets.QMainWindow):
 
     def _board_update(self, idx: int, board: BoardInfo):
         self._boards[idx] = board
-        self.sigSettingsChanged.emit(self._boards)
+        self.sigSettingsChanged.emit(self._boards)  # type: ignore
 
 
 class AlazarChannelGui(GuiBase):
@@ -225,7 +224,7 @@ class AlazarChannelGui(GuiBase):
         self._boards: list[BoardInfo] = self._logic().board_info
         self.log.info(f"Length of boards: {len(self._boards)}")
         self._mw = AlazarChannelWindow(self._boards)
-        self._mw.sigSettingsChanged.connect(self._logic().update_boards)
+        self._mw.sigSettingsChanged.connect(self._logic().update_boards)  # type: ignore
 
         self.show()
 

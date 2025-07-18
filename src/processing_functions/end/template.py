@@ -1,5 +1,5 @@
 import numpy as np
-
+import numpy.typing as npt
 from qudi.logic.base_alazar_logic import BaseExperimentSettings
 from qudi.interface.alazar_interface import BoardInfo
 
@@ -33,8 +33,12 @@ the shape [data_index][data] where [data] could be 1- or 2-dimensional
 
 
 def template(
-    data: np.ndarray, settings: BaseExperimentSettings, boards: list[BoardInfo]
-) -> np.ndarray:
+    data: npt.NDArray[
+        np.float_
+    ],  # Note: this could also be a np.int_ depending on your use case. It should match the return type
+    settings: BaseExperimentSettings,
+    boards: list[BoardInfo],
+) -> npt.NDArray[np.float_]:
     out = np.zeros((512 * 512,))
     for i, b in enumerate(boards):
         d = data[i]
