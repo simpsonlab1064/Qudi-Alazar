@@ -204,11 +204,11 @@ class AlazarDummy(AlazarInterface):
                 i += 1
 
     def _generate_data(self, num_samples: int, board_idx: int) -> npt.NDArray[np.int_]:
-        buf = np.random.rand(num_samples) * 100
+        buf = np.random.rand(num_samples) * 10
         # Bright stripe in the middle of the data
         start = round(num_samples / 4)
         end = round(3 * num_samples / 4)
 
-        buf[start:end] = buf[start:end] + 5 * (board_idx + 1)
+        buf[start:end] = buf[start:end] + 100 * (board_idx)
 
         return buf.astype(int)

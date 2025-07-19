@@ -1,7 +1,7 @@
 __all__ = ["AlazarImageGui"]
 
-from qudi.core.module import GuiBase
-from qudi.core.connector import Connector
+from qudi.core.module import GuiBase  # type: ignore
+from qudi.core.connector import Connector  # type: ignore
 
 from qudi.logic.base_alazar_logic import (
     BaseExperimentSettings,
@@ -10,10 +10,9 @@ from qudi.logic.base_alazar_logic import (
 )
 
 from PySide2 import QtCore, QtWidgets
-import numpy as np
-import pyqtgraph as pg
+import pyqtgraph as pg  # type: ignore
 
-pg.setConfigOption("useOpenGL", True)
+pg.setConfigOption("useOpenGL", True)  # type: ignore
 
 
 class AlazarDisplayWindow(QtWidgets.QMainWindow):
@@ -21,8 +20,8 @@ class AlazarDisplayWindow(QtWidgets.QMainWindow):
     _data: list[DisplayData]
     _selected_idx: int = 0
 
-    def __init__(self, settings: BaseExperimentSettings, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, settings: BaseExperimentSettings, *args, **kwargs):  # type: ignore
+        super().__init__(*args, **kwargs)  # type: ignore
         self.setWindowTitle("Alazar Image Display")
 
         self._data = []
@@ -31,7 +30,7 @@ class AlazarDisplayWindow(QtWidgets.QMainWindow):
 
         self.data_selection = QtWidgets.QComboBox()
         self.update_data(self._data)
-        self.data_selection.currentIndexChanged.connect(self._select_data)
+        self.data_selection.currentIndexChanged.connect(self._select_data)  # type: ignore
 
         # arrange widgets in layout
         layout = QtWidgets.QGridLayout()
@@ -70,7 +69,7 @@ class AlazarDisplayWindow(QtWidgets.QMainWindow):
 
     def _select_data(self, idx: int):
         self._selected_idx = idx
-        self.image.setImage(self._data[idx].data)
+        self.image.setImage(self._data[idx].data)  # type: ignore
 
 
 class AlazarImageGui(GuiBase):
@@ -99,7 +98,7 @@ class AlazarImageGui(GuiBase):
     def show(self):
         self._mw.show()
 
-    @QtCore.Slot(object)
+    @QtCore.Slot(object)  # type: ignore
     def _update_data(self, data: list[DisplayData]):
         self._data.clear()
         for d in data:

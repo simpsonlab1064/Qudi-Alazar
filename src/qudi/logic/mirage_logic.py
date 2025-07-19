@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-__all__ = ["GalvoResLogic"]
+__all__ = ["MirageLogic"]
 
 from PySide2 import QtCore
 import numpy as np
@@ -15,21 +15,17 @@ from qudi.interface.alazar_interface import BoardInfo, AcquisitionMode
 
 # Note: do_series is currently unused as I don't know what it's actually for.
 # Adding it in should be pretty doable once I know what purpose it serves
-class GalvoResExperimentSettings(ImagingExperimentSettings):
-    series_length: int
-    do_series: bool
-    live_process_function: str | None
-    end_process_function: str | None
+class MirageExperimentSettings(ImagingExperimentSettings):
+    pixel_dwell_time_us: float
 
     def __init__(
         self,
         fast_mirror_phase: float = 0,
-        mirror_period_us: float = 66.8,
+        mirror_period_us: float = 1000,
+        pixel_dwell_time_us: float = 10000,
         width: int = 512,
         height: int = 512,
         num_frames: int = 1,
-        series_length: int = 1,
-        do_series: bool = False,
         autosave_file_path: str | None = None,
         do_autosave: bool = False,
         live_processing_function: str | None = None,
@@ -37,8 +33,7 @@ class GalvoResExperimentSettings(ImagingExperimentSettings):
     ):
         self.width = width
         self.height = height
-        self.series_length = series_length
-        self.do_series = do_series
+        self.pixel_dwell_time_us = pixel_dwell_time_us
 
         super().__init__(
             width=width,
@@ -56,15 +51,14 @@ class GalvoResExperimentSettings(ImagingExperimentSettings):
         return 1e6 / self.mirror_period_us
 
     @staticmethod  # The order here is important -- it must match the __init__ order
-    def representer_func(instance: GalvoResExperimentSettings) -> list[object]:
+    def representer_func(instance: MirageExperimentSettings) -> list[object]:
         return [
             instance.fast_mirror_phase,
             instance.mirror_period_us,
+            instance.pixel_dwell_time_us,
             instance.width,
             instance.height,
             instance.num_frames,
-            instance.series_length,
-            instance.do_series,
             instance.autosave_file_path,
             instance.do_autosave,
             instance.live_process_function,
@@ -72,18 +66,20 @@ class GalvoResExperimentSettings(ImagingExperimentSettings):
         ]
 
     @staticmethod
-    def constructor_func(yaml_data: object) -> GalvoResExperimentSettings:
-        return GalvoResExperimentSettings(*yaml_data)  # type: ignore
+    def constructor_func(yaml_data: object) -> MirageExperimentSettings:
+        return MirageExperimentSettings(*yaml_data)  # type: ignore
+        # return yaml_data
 
 
-class GalvoResLogic(BaseAlazarLogic[GalvoResExperimentSettings]):
+class MirageLogic(BaseAlazarLogic[MirageExperimentSettings]):
     """
-    This contains logic for running a galvo-res experiment
+    This contains logic for running an experiment using both the mIRage and
+    laser
 
     Example config that goes into the config file:
 
     example_logic:
-        module.Class: 'galvo_res_logic.GalvoResLogic'
+        module.Class: 'mirage_logic.MirageLogic'
         connect:
             alazar: alazar
         options:
@@ -95,14 +91,14 @@ class GalvoResLogic(BaseAlazarLogic[GalvoResExperimentSettings]):
             min_mod: 1e-12 # Maximum value that samples per line can be different
                            # without triggering an error
 
-            image_at_end: True # if the end_function produces data that is appropriate for imaging
+            image_at_end: False # if the end_function produces data that is appropriate for imaging
     """
 
-    _settings: GalvoResExperimentSettings = StatusVar(
-        name="galvo_res_settings",
-        default=GalvoResExperimentSettings(),
-        constructor=GalvoResExperimentSettings.constructor_func,
-        representer=GalvoResExperimentSettings.representer_func,
+    _settings: MirageExperimentSettings = StatusVar(
+        name="mirage_settings",
+        default=MirageExperimentSettings(),
+        constructor=MirageExperimentSettings.constructor_func,
+        representer=MirageExperimentSettings.representer_func,
     )  # type: ignore
 
     _min_mod: float = ConfigOption(name="min_mod", default=1e-12, missing="info")  # type: ignore
@@ -121,7 +117,7 @@ class GalvoResLogic(BaseAlazarLogic[GalvoResExperimentSettings]):
         return super().board_info
 
     @property
-    def experiment_info(self) -> GalvoResExperimentSettings:
+    def experiment_info(self) -> MirageExperimentSettings:
         return super().experiment_info
 
     @QtCore.Slot(object)  # type: ignore
@@ -141,7 +137,7 @@ class GalvoResLogic(BaseAlazarLogic[GalvoResExperimentSettings]):
     def start_acquisition(self):
         self._apply_configuration(
             settings=self._settings,
-            mode=AcquisitionMode.TRIGGERED_STREAMING,
+            mode=AcquisitionMode.NPT,
             num_buffers=self._settings.num_frames,
         )
         super().start_acquisition()
@@ -163,7 +159,7 @@ class GalvoResLogic(BaseAlazarLogic[GalvoResExperimentSettings]):
         super().stop_acquisition()
 
     @QtCore.Slot(object)  # type: ignore
-    def configure_acquisition(self, settings: GalvoResExperimentSettings):
+    def configure_acquisition(self, settings: MirageExperimentSettings):
         super().configure_acquisition(settings)
 
     @QtCore.Slot()  # type: ignore
@@ -175,7 +171,7 @@ class GalvoResLogic(BaseAlazarLogic[GalvoResExperimentSettings]):
 
     def _apply_configuration(
         self,
-        settings: GalvoResExperimentSettings,
+        settings: MirageExperimentSettings,
         mode: AcquisitionMode,
         num_buffers: int,
         records_per_buffer: int = 1,
@@ -190,14 +186,8 @@ class GalvoResLogic(BaseAlazarLogic[GalvoResExperimentSettings]):
     def _calculate_samples_per_record(self) -> int:
         """Note that this is per-channel"""
         samps: float = 0
-        samples_per_line = (
-            1e3
-            * self._settings.mirror_period_us
-            / (1e9 / float(self._settings.sample_rate))
-        )
-
-        samps = samples_per_line * float(self._settings.height)
-        self.log.info(f"Samples per line: {samples_per_line}")
+        samps = self._settings.pixel_dwell_time_us * self._settings.sample_rate
+        samps = samps / 1e6
 
         if samps < 256:
             self.log.error(
@@ -206,7 +196,20 @@ class GalvoResLogic(BaseAlazarLogic[GalvoResExperimentSettings]):
 
         if not samps % 1 < self._min_mod:
             self.log.error(
-                f"Samples for a single line is within allowed tolerance ({self._min_mod}) of an integer. Adjust width resolution or mirror period."
+                f"Samples per pixel-wavelength is ({samps % 1}) which is not within ({self._min_mod}) of an integer. Adjust width resolution or mirror period."
+            )
+
+        if not samps % 32 == 0:
+            remainder = samps % 32
+            added = samps + remainder
+            subtracted = samps - remainder
+            guess = added
+            if not guess % 32 == 0:
+                guess = subtracted
+
+            guess = 1e6 * guess / self._settings.sample_rate
+            self.log.error(
+                f"Number of samples per pixel-wavelength is not a multiple of 32, which is required by Alazar. Closest conforming duration is (in us): {guess}"
             )
 
         return int(samps)

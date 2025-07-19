@@ -278,7 +278,7 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
         path = Path(
             self._settings.autosave_file_path
             if self._settings.autosave_file_path is not None
-            else ""
+            else "."
         )
         os.makedirs(path.parent)
 
@@ -290,7 +290,7 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
             include_global_metadata=False,
         )
 
-        storage.save_data(self._data, filename=path.absolute())  # type: ignore
+        storage.save_data(self._data.data, filename=path.absolute())  # type: ignore
 
     @abstractmethod
     def _check_config(self):

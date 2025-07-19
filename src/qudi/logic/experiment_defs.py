@@ -19,6 +19,7 @@ class BaseExperimentSettings(ABC):
     live_process_function: str | None
     end_process_function: str | None
     sample_rate: int
+    """In Hz"""
 
     @abstractmethod
     def __init__(

@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 
-__all__ = ["AlazarGalvoResControlGui"]
+__all__ = ["AlazarMirageControlGui"]
 from qudi.core.module import GuiBase  # type: ignore
 from qudi.core.connector import Connector  # type: ignore
 from qudi.util.paths import get_artwork_dir  # type: ignore
 
-from qudi.logic.galvo_res_logic import GalvoResExperimentSettings, GalvoResLogic
+from qudi.logic.mirage_logic import MirageExperimentSettings, MirageLogic
 import os
 from PySide2 import QtCore, QtWidgets, QtGui
 import pyqtgraph as pg  # type: ignore
@@ -13,7 +13,7 @@ import pyqtgraph as pg  # type: ignore
 pg.setConfigOption("useOpenGL", True)  # Add this at the top of your file # type: ignore
 
 
-class GalvoResControlWindow(QtWidgets.QMainWindow):
+class MirageControlWindow(QtWidgets.QMainWindow):
     """Main window for Grating Scan measurement"""
 
     def __init__(self, *args, **kwargs):  # type: ignore
@@ -60,12 +60,12 @@ class GalvoResControlWindow(QtWidgets.QMainWindow):
         self.fast_mirror_phase.setRange(-7, 7)
         self.fast_mirror_phase.setDecimals(4)
 
-        self.scan_period_us_label = QtWidgets.QLabel("Scan Period (us)")
-        self.scan_period_us = QtWidgets.QDoubleSpinBox()
-        self.scan_period_us.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons)  # type: ignore
-        self.scan_period_us.setAlignment(QtCore.Qt.AlignHCenter)  # type: ignore
-        self.scan_period_us.setRange(0, 1000)
-        self.scan_period_us.setDecimals(4)
+        self.pixel_dwell_time_us_label = QtWidgets.QLabel("Pixel Dwell Time (us)")
+        self.pixel_dwell_time_us = QtWidgets.QDoubleSpinBox()
+        self.pixel_dwell_time_us.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons)  # type: ignore
+        self.pixel_dwell_time_us.setAlignment(QtCore.Qt.AlignHCenter)  # type: ignore
+        self.pixel_dwell_time_us.setRange(1, 100000)
+        self.fast_mirror_phase.setDecimals(4)
 
         self.image_width_label = QtWidgets.QLabel("Image Width (pixels)")
         self.image_width = QtWidgets.QSpinBox()
@@ -84,16 +84,6 @@ class GalvoResControlWindow(QtWidgets.QMainWindow):
         self.number_frames.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons)  # type: ignore
         self.number_frames.setAlignment(QtCore.Qt.AlignHCenter)  # type: ignore
         self.number_frames.setRange(1, 10000)
-
-        self.series_length_label = QtWidgets.QLabel("Series Length")
-        self.series_length = QtWidgets.QSpinBox()
-        self.series_length.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons)  # type: ignore
-        self.series_length.setAlignment(QtCore.Qt.AlignHCenter)  # type: ignore
-        self.series_length.setRange(1, 10000)
-
-        self.do_series = QtWidgets.QToolButton()
-        self.do_series.setCheckable(True)
-        self.do_series.setText("Do Series?")
 
         self.live_process_fn_label = QtWidgets.QLabel("Live Processing Function")
         self.live_process_fn = QtWidgets.QLineEdit()
@@ -118,17 +108,18 @@ class GalvoResControlWindow(QtWidgets.QMainWindow):
 
         control_layout.addWidget(self.fast_mirror_phase_label, 0, QtCore.Qt.AlignBottom)  # type: ignore
         control_layout.addWidget(self.fast_mirror_phase, 0, QtCore.Qt.AlignTop)  # type: ignore
-        control_layout.addWidget(self.scan_period_us_label, 0, QtCore.Qt.AlignBottom)  # type: ignore
-        control_layout.addWidget(self.scan_period_us, 0, QtCore.Qt.AlignTop)  # type: ignore
+        control_layout.addWidget(
+            self.pixel_dwell_time_us_label,
+            0,
+            QtCore.Qt.AlignBottom,  # type: ignore
+        )
+        control_layout.addWidget(self.pixel_dwell_time_us, 0, QtCore.Qt.AlignTop)  # type: ignore
         control_layout.addWidget(self.image_width_label, 0, QtCore.Qt.AlignBottom)  # type: ignore
         control_layout.addWidget(self.image_width, 0, QtCore.Qt.AlignTop)  # type: ignore
         control_layout.addWidget(self.image_height_label, 0, QtCore.Qt.AlignBottom)  # type: ignore
         control_layout.addWidget(self.image_height, 0, QtCore.Qt.AlignTop)  # type: ignore
         control_layout.addWidget(self.number_frames_label, 0, QtCore.Qt.AlignBottom)  # type: ignore
         control_layout.addWidget(self.number_frames, 0, QtCore.Qt.AlignTop)  # type: ignore
-        control_layout.addWidget(self.series_length_label, 0, QtCore.Qt.AlignBottom)  # type: ignore
-        control_layout.addWidget(self.series_length, 0, QtCore.Qt.AlignTop)  # type: ignore
-        control_layout.addWidget(self.do_series, 0, QtCore.Qt.AlignTop)  # type: ignore
         control_layout.addWidget(self.live_process_fn_label, 0, QtCore.Qt.AlignBottom)  # type: ignore
         control_layout.addWidget(self.live_process_fn, 0, QtCore.Qt.AlignTop)  # type: ignore
         control_layout.addWidget(self.end_process_fn_label, 0, QtCore.Qt.AlignBottom)  # type: ignore
@@ -148,10 +139,10 @@ class GalvoResControlWindow(QtWidgets.QMainWindow):
         self.setCentralWidget(central_widget)
 
 
-class AlazarGalvoResControlGui(GuiBase):
+class AlazarMirageControlGui(GuiBase):
     """Qudi GUI module Alazar control"""
 
-    _logic = Connector(name="galvo_res_logic", interface="GalvoResLogic")
+    _logic = Connector(name="mirage_logic", interface="MirageLogic")
 
     #### Output Signals ####
     sigStartMeasurement = QtCore.Signal()
@@ -159,23 +150,22 @@ class AlazarGalvoResControlGui(GuiBase):
     sigStopMeasurement = QtCore.Signal()
     sigUpdateAcquisitionSettings = QtCore.Signal(
         object
-    )  # is a GalvoResExperimentSettings
+    )  # is a MirageExperimentSettings
     sigSaveData = QtCore.Signal()
 
     def on_activate(self):
         self._running = False
-        self._mw = GalvoResControlWindow()
-        logic: GalvoResLogic = self._logic()
+        self._mw = MirageControlWindow()
+        logic: MirageLogic = self._logic()
 
         # Pull stored values to re-populate:
         settings = logic.experiment_info
 
         self._mw.fast_mirror_phase.setValue(settings.fast_mirror_phase)
-        self._mw.scan_period_us.setValue(settings.mirror_period_us)
+        self._mw.pixel_dwell_time_us.setValue(settings.pixel_dwell_time_us)
         self._mw.image_height.setValue(settings.height)
         self._mw.image_width.setValue(settings.width)
         self._mw.number_frames.setValue(settings.num_frames)
-        self._mw.series_length.setValue(settings.series_length)
         self._mw.live_process_fn.setText(
             settings.live_process_function if not None else ""  # type: ignore
         )
@@ -188,16 +178,13 @@ class AlazarGalvoResControlGui(GuiBase):
 
         # Connect internal signals:
         self._mw.fast_mirror_phase.valueChanged.connect(self._fast_mirror_update)  # type: ignore
-        self._mw.scan_period_us.valueChanged.connect(self._scan_period_us)  # type: ignore
+        self._mw.pixel_dwell_time_us.valueChanged.connect(self._pixel_dwell_time_us)  # type: ignore
         self._mw.image_height.valueChanged.connect(self._image_height)  # type: ignore
         self._mw.image_width.valueChanged.connect(self._image_width)  # type: ignore
         self._mw.number_frames.valueChanged.connect(self._number_frames)  # type: ignore
-        self._mw.series_length.valueChanged.connect(self._series_length)  # type: ignore
-        self._mw.do_series.toggled.connect(self._do_series)  # type: ignore
         self._mw.live_process_fn.textChanged.connect(self._live_fn)  # type: ignore
         self._mw.end_process_fn.textChanged.connect(self._end_fn)  # type: ignore
         self._mw.save_folder.textChanged.connect(self._save_folder)  # type: ignore
-        self._mw.autosave.toggled.connect(self._do_series)  # type: ignore
         self._mw.start_stop_button.clicked.connect(self._start_stop_pressed)  # type: ignore
 
         # And external siganls:
@@ -263,56 +250,46 @@ class AlazarGalvoResControlGui(GuiBase):
         self._mw.progress_bar.setValue(round(percent))
 
     def _fast_mirror_update(self, phase: float):
-        settings: GalvoResExperimentSettings = self._logic().experiment_info
+        settings: MirageExperimentSettings = self._logic().experiment_info
         settings.fast_mirror_phase = phase
         self.sigUpdateAcquisitionSettings.emit(settings)  # type: ignore
 
-    def _scan_period_us(self, period: float):
-        settings: GalvoResExperimentSettings = self._logic().experiment_info
-        settings.mirror_period_us = period
+    def _pixel_dwell_time_us(self, dwell: float):
+        settings: MirageExperimentSettings = self._logic().experiment_info
+        settings.pixel_dwell_time_us = dwell
         self.sigUpdateAcquisitionSettings.emit(settings)  # type: ignore
 
     def _image_height(self, h: int):
-        settings: GalvoResExperimentSettings = self._logic().experiment_info
+        settings: MirageExperimentSettings = self._logic().experiment_info
         settings.height = h
         self.sigUpdateAcquisitionSettings.emit(settings)  # type: ignore
 
     def _image_width(self, w: int):
-        settings: GalvoResExperimentSettings = self._logic().experiment_info
+        settings: MirageExperimentSettings = self._logic().experiment_info
         settings.width = w
         self.sigUpdateAcquisitionSettings.emit(settings)  # type: ignore
 
     def _number_frames(self, n: int):
-        settings: GalvoResExperimentSettings = self._logic().experiment_info
+        settings: MirageExperimentSettings = self._logic().experiment_info
         settings.num_frames = n
         self.sigUpdateAcquisitionSettings.emit(settings)  # type: ignore
 
-    def _series_length(self, n: int):
-        settings: GalvoResExperimentSettings = self._logic().experiment_info
-        settings.series_length = n
-        self.sigUpdateAcquisitionSettings.emit(settings)  # type: ignore
-
-    def _do_series(self, d: bool):
-        settings: GalvoResExperimentSettings = self._logic().experiment_info
-        settings.do_series = d
-        self.sigUpdateAcquisitionSettings.emit(settings)  # type: ignore
-
     def _live_fn(self, fn: str):
-        settings: GalvoResExperimentSettings = self._logic().experiment_info
+        settings: MirageExperimentSettings = self._logic().experiment_info
         settings.live_process_function = fn
         self.sigUpdateAcquisitionSettings.emit(settings)  # type: ignore
 
     def _end_fn(self, fn: str):
-        settings: GalvoResExperimentSettings = self._logic().experiment_info
+        settings: MirageExperimentSettings = self._logic().experiment_info
         settings.end_process_function = fn
         self.sigUpdateAcquisitionSettings.emit(settings)  # type: ignore
 
     def _save_folder(self, path: str):
-        settings: GalvoResExperimentSettings = self._logic().experiment_info
+        settings: MirageExperimentSettings = self._logic().experiment_info
         settings.autosave_file_path = path
         self.sigUpdateAcquisitionSettings.emit(settings)  # type: ignore
 
     def _do_autosave(self, d: bool):
-        settings: GalvoResExperimentSettings = self._logic().experiment_info
+        settings: MirageExperimentSettings = self._logic().experiment_info
         settings.do_autosave = d
         self.sigUpdateAcquisitionSettings.emit(settings)  # type: ignore
