@@ -15,7 +15,7 @@ import pyqtgraph as pg  # type: ignore
 pg.setConfigOption("useOpenGL", True)  # type: ignore
 
 
-class AlazarDisplayWindow(QtWidgets.QMainWindow):
+class AlazarImageDisplayWindow(QtWidgets.QMainWindow):
     sigSelectChannel = QtCore.Signal(int)
     _data: list[DisplayData]
     _selected_idx: int = 0
@@ -59,7 +59,7 @@ class AlazarDisplayWindow(QtWidgets.QMainWindow):
                     self.data_selection.insertItem(i, e.label, e.label)
 
         else:
-            # Assume the channels haven't changed meanining if they are of the
+            # Assume the channels haven't changed meaning if they are of the
             # same length (good assumption?)
             if len(self._data) > 0:
                 self._select_data(self._selected_idx)
@@ -86,7 +86,7 @@ class AlazarImageGui(GuiBase):
 
     def on_activate(self):
         self._settings: BaseExperimentSettings = self._logic().experiment_info
-        self._mw = AlazarDisplayWindow(self._settings)
+        self._mw = AlazarImageDisplayWindow(self._settings)
 
         self._logic().sigImageDataUpdated.connect(self._update_data)
 

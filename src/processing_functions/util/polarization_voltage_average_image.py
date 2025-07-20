@@ -20,7 +20,6 @@ def polarization_voltage_average_image(
     images = np.zeros((polarization_states, h * w))
 
     agg = aggregate(assignment, data)  # type: ignore
-
     pulses_per_pixel = aggregate(assignment, 1, fill_value=-10)  # type: ignore
 
     for i in range(polarization_states):

@@ -49,15 +49,13 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
                            # buffers and hope we process them fast enough to not
                            # hit an overrun
 
-            image_at_end: True # if the end_function produces data that is appropriate for imaging
+            view_at_end: True # if the end_function produces data that is appropriate for imaging
             live_viewing_fn: imaging # Function to use for live-viewing results
     """
 
     # Config Values:
     _num_buffers: int = ConfigOption(name="num_buffers", default=0, missing="info")  # type: ignore
-    _image_at_end: bool = ConfigOption(
-        name="image_at_end", default=False, missing="info"
-    )  # type: ignore
+    _view_at_end: bool = ConfigOption(name="view_at_end", default=False, missing="info")  # type: ignore
     _live_viewing_fn: str = ConfigOption(
         name="live_viewing_fn", default="", missing="info"
     )  # type: ignore
@@ -214,7 +212,7 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
         if self._settings.do_autosave:
             self.save_data()
 
-        if self._image_at_end:
+        if self._view_at_end:
             self._update_display_data()
             self.sigImageDataUpdated.emit(self._display_data)  # type: ignore
 

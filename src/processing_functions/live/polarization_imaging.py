@@ -78,7 +78,8 @@ def _polarization_imaging(
 
     pols = np.array(range(polarization_states))
     pol_assignment = np.resize(pols, num_samples)
-    pol_assignment = np.roll(pol_assignment, num_samples * buffer_index)
+    offset = (num_samples * buffer_index) % polarization_states
+    pol_assignment = np.roll(pol_assignment, offset)
 
     assignment = np.vstack([pol_assignment, t])
 
