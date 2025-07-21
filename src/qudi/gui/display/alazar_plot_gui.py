@@ -21,13 +21,16 @@ pg.setConfigOption("useOpenGL", True)  # type: ignore
 
 class AlazarPlotDisplayWindow(QtWidgets.QMainWindow):
     sigSelectChannel = QtCore.Signal(int)
-    sigDownsample = QtCore.Signal(np.ndarray, int)  # Signal to worker thread
+    sigDownsample = QtCore.Signal(
+        np.ndarray, int, object
+    )  # Signal to worker thread, last is list[float]
     _data: list[DisplayData]
     _selected_idx: int = 0
     _settings: BaseExperimentSettings
-    _initial_downsampling: int = 1000
-    _current_downsampling: int = 1000
+    _initial_downsampling: int = 100
+    _current_downsampling: int = 100
     _needs_resample: bool = False
+    _x_range: list[float] = [0, 1e7]
     # TODO: Possibly add a flag/check to see if we should discard the downsample result (when we change data)
 
     def __init__(self, settings: BaseExperimentSettings, *args, **kwargs):  # type: ignore
@@ -68,7 +71,7 @@ class AlazarPlotDisplayWindow(QtWidgets.QMainWindow):
         self._data_item = pg.PlotDataItem(
             pen=pg.mkPen(palette.c1, style=QtCore.Qt.SolidLine),  # type: ignore
             autoDownsample=False,
-            clipToView=True,
+            # clipToView=True,
         )
 
         self.plot_widget.addItem(self._data_item)  # type: ignore
@@ -133,25 +136,23 @@ class AlazarPlotDisplayWindow(QtWidgets.QMainWindow):
             points_in_range = round(
                 (x_max - x_min) / (self._settings.sample_rate * 1e-9)
             )
-            print(points_in_range)
-            print(points_in_range < 1e7)
 
-            # Note, you need to go from lowest to highest or it instantly
-            # matches on the first choice
-            if points_in_range < 1e3:
-                self._current_downsampling = 1
-
-            elif points_in_range < 1e5:
-                self._current_downsampling = 5
-
-            elif points_in_range < 1e9:
-                self._current_downsampling = 50  # disable
-
-            else:
-                self._current_downsampling = self._initial_downsampling
-
-            print(f"Downsampling: {self._current_downsampling}")
+            self._current_downsampling = self._calculate_downsample(points_in_range)
+            self._x_range = limits
             self._needs_resample = True
+
+    def _calculate_downsample(self, points_in_range: int) -> int:
+        # This works reasonably well, but the data disappears (for some reason)
+        # when you zoom in too much. Not sure if it's a downsampling problem or
+        # if it's a pg problem.
+        down = self._initial_downsampling
+        target_samples = 1e6
+
+        down = round(np.floor(points_in_range / target_samples))
+        if down < 1:
+            down = 1
+
+        return down
 
     def _select_data(self, idx: int):
         self._selected_idx = idx
@@ -170,7 +171,7 @@ class AlazarPlotDisplayWindow(QtWidgets.QMainWindow):
             x = np.linspace(start=0, stop=num_samples * ns_per_sample, num=num_samples)
             data = np.vstack((x, self._data[self._selected_idx].data))
             downsample = self._current_downsampling
-            self.sigDownsample.emit(data, downsample)  # type: ignore
+            self.sigDownsample.emit(data, downsample, self._x_range)  # type: ignore
             self._needs_resample = False
 
 

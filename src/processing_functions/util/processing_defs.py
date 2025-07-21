@@ -130,7 +130,7 @@ class EndProcessingInterface(Generic[T], ABC):
     @abstractmethod
     def __call__(
         self,
-        data: npt.NDArray[Any],  # usually np.int_ or np.float_
+        data: ProcessedData,  # usually np.int_ or np.float_
         settings: T,
         boards: list[BoardInfo],
     ) -> ProcessedData:
@@ -141,7 +141,7 @@ class EndProcessingInterface(Generic[T], ABC):
         cls,
         func: Callable[
             [
-                npt.NDArray[Any],
+                ProcessedData,
                 T,
                 list[BoardInfo],
             ],
@@ -156,7 +156,7 @@ class EndProcessingInterface(Generic[T], ABC):
                 self,
                 wrapped_func: Callable[
                     [
-                        npt.NDArray[Any],
+                        ProcessedData,
                         S,
                         list[BoardInfo],
                     ],
@@ -167,7 +167,7 @@ class EndProcessingInterface(Generic[T], ABC):
 
             def __call__(
                 self,
-                data: npt.NDArray[Any],  # usually np.int_ or np.float_
+                data: ProcessedData,  # usually np.int_ or np.float_
                 settings: S,
                 boards: list[BoardInfo],
             ) -> ProcessedData:

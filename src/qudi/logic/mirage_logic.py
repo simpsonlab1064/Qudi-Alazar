@@ -17,12 +17,16 @@ from qudi.interface.alazar_interface import BoardInfo, AcquisitionMode
 # Adding it in should be pretty doable once I know what purpose it serves
 class MirageExperimentSettings(ImagingExperimentSettings):
     pixel_dwell_time_us: float
+    ir_pulse_period_us: float
+    wavelengths_per_pixel: int
 
     def __init__(
         self,
         fast_mirror_phase: float = 0,
         mirror_period_us: float = 1000,
         pixel_dwell_time_us: float = 10000,
+        ir_pulse_period_us: float = 10000,
+        wavelengths_per_pixel: int = 1,
         width: int = 512,
         height: int = 512,
         num_frames: int = 1,
@@ -34,6 +38,8 @@ class MirageExperimentSettings(ImagingExperimentSettings):
         self.width = width
         self.height = height
         self.pixel_dwell_time_us = pixel_dwell_time_us
+        self.ir_pulse_period_us = ir_pulse_period_us
+        self.wavelengths_per_pixel = wavelengths_per_pixel
 
         super().__init__(
             width=width,
@@ -47,6 +53,9 @@ class MirageExperimentSettings(ImagingExperimentSettings):
             num_frames=num_frames,
         )
 
+    def calc_records_per_acquisition(self) -> int:
+        return self.wavelengths_per_pixel * self.height * self.width
+
     def scan_freq_hz(self) -> float:
         return 1e6 / self.mirror_period_us
 
@@ -56,6 +65,8 @@ class MirageExperimentSettings(ImagingExperimentSettings):
             instance.fast_mirror_phase,
             instance.mirror_period_us,
             instance.pixel_dwell_time_us,
+            instance.ir_pulse_period_us,
+            instance.wavelengths_per_pixel,
             instance.width,
             instance.height,
             instance.num_frames,
@@ -92,6 +103,7 @@ class MirageLogic(BaseAlazarLogic[MirageExperimentSettings]):
                            # without triggering an error
 
             image_at_end: False # if the end_function produces data that is appropriate for imaging
+
     """
 
     _settings: MirageExperimentSettings = StatusVar(
@@ -135,10 +147,15 @@ class MirageLogic(BaseAlazarLogic[MirageExperimentSettings]):
 
     @QtCore.Slot()  # type: ignore
     def start_acquisition(self):
+        num_b = (
+            self._settings.calc_records_per_acquisition()
+            if self._num_buffers == 0
+            else self._num_buffers
+        )
         self._apply_configuration(
             settings=self._settings,
             mode=AcquisitionMode.NPT,
-            num_buffers=self._settings.num_frames,
+            num_buffers=num_b,
         )
         super().start_acquisition()
 
@@ -191,7 +208,7 @@ class MirageLogic(BaseAlazarLogic[MirageExperimentSettings]):
 
         if samps < 256:
             self.log.error(
-                f"Number of samples per frame is too small: {samps}. Increase pixel dwell time or resolution of image."
+                f"Number of samples per pixel-wavelength is too small: {samps}. Increase pixel dwell time or resolution of image."
             )
 
         if not samps % 1 < self._min_mod:

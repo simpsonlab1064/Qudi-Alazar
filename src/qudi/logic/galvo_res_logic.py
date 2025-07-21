@@ -52,6 +52,9 @@ class GalvoResExperimentSettings(ImagingExperimentSettings):
             num_frames=num_frames,
         )
 
+    def calc_records_per_acquisition(self) -> int:
+        return self.num_frames
+
     def scan_freq_hz(self) -> float:
         return 1e6 / self.mirror_period_us
 

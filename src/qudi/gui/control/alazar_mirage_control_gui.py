@@ -14,11 +14,11 @@ pg.setConfigOption("useOpenGL", True)  # Add this at the top of your file # type
 
 
 class MirageControlWindow(QtWidgets.QMainWindow):
-    """Main window for Grating Scan measurement"""
+    """Main window for mIRage measurement"""
 
     def __init__(self, *args, **kwargs):  # type: ignore
         super().__init__(*args, **kwargs)  # type: ignore
-        self.setWindowTitle("Alazar Galvo-Res Control")
+        self.setWindowTitle("Alazar mIRage Control")
 
         # Create menu bar
         menu_bar = QtWidgets.QMenuBar()
@@ -65,7 +65,24 @@ class MirageControlWindow(QtWidgets.QMainWindow):
         self.pixel_dwell_time_us.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons)  # type: ignore
         self.pixel_dwell_time_us.setAlignment(QtCore.Qt.AlignHCenter)  # type: ignore
         self.pixel_dwell_time_us.setRange(1, 100000)
-        self.fast_mirror_phase.setDecimals(4)
+        self.pixel_dwell_time_us.setDecimals(4)
+
+        self.ir_pulse_duration_us_label = QtWidgets.QLabel(
+            "IR Laser Pulse Duration (us)"
+        )
+        self.ir_pulse_duration_us = QtWidgets.QDoubleSpinBox()
+        self.ir_pulse_duration_us.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons)  # type: ignore
+        self.ir_pulse_duration_us.setAlignment(QtCore.Qt.AlignHCenter)  # type: ignore
+        self.ir_pulse_duration_us.setRange(1, 100000)
+        self.ir_pulse_duration_us.setDecimals(4)
+
+        self.wavelengths_per_pixel_label = QtWidgets.QLabel("Wavelengths Per Pixel")
+        self.wavelengths_per_pixel = QtWidgets.QSpinBox()
+        self.wavelengths_per_pixel.setButtonSymbols(
+            QtWidgets.QAbstractSpinBox.NoButtons  # type: ignore
+        )
+        self.wavelengths_per_pixel.setAlignment(QtCore.Qt.AlignHCenter)  # type: ignore
+        self.wavelengths_per_pixel.setRange(1, 1024)
 
         self.image_width_label = QtWidgets.QLabel("Image Width (pixels)")
         self.image_width = QtWidgets.QSpinBox()
@@ -114,6 +131,18 @@ class MirageControlWindow(QtWidgets.QMainWindow):
             QtCore.Qt.AlignBottom,  # type: ignore
         )
         control_layout.addWidget(self.pixel_dwell_time_us, 0, QtCore.Qt.AlignTop)  # type: ignore
+        control_layout.addWidget(
+            self.ir_pulse_duration_us_label,
+            0,
+            QtCore.Qt.AlignBottom,  # type: ignore
+        )
+        control_layout.addWidget(self.ir_pulse_duration_us, 0, QtCore.Qt.AlignBottom)  # type: ignore
+        control_layout.addWidget(
+            self.wavelengths_per_pixel_label,
+            0,
+            QtCore.Qt.AlignBottom,  # type: ignore
+        )
+        control_layout.addWidget(self.wavelengths_per_pixel, 0, QtCore.Qt.AlignBottom)  # type: ignore
         control_layout.addWidget(self.image_width_label, 0, QtCore.Qt.AlignBottom)  # type: ignore
         control_layout.addWidget(self.image_width, 0, QtCore.Qt.AlignTop)  # type: ignore
         control_layout.addWidget(self.image_height_label, 0, QtCore.Qt.AlignBottom)  # type: ignore
@@ -163,6 +192,8 @@ class AlazarMirageControlGui(GuiBase):
 
         self._mw.fast_mirror_phase.setValue(settings.fast_mirror_phase)
         self._mw.pixel_dwell_time_us.setValue(settings.pixel_dwell_time_us)
+        self._mw.ir_pulse_duration_us.setValue(settings.ir_pulse_period_us)
+        self._mw.wavelengths_per_pixel.setValue(settings.wavelengths_per_pixel)
         self._mw.image_height.setValue(settings.height)
         self._mw.image_width.setValue(settings.width)
         self._mw.number_frames.setValue(settings.num_frames)
@@ -179,6 +210,8 @@ class AlazarMirageControlGui(GuiBase):
         # Connect internal signals:
         self._mw.fast_mirror_phase.valueChanged.connect(self._fast_mirror_update)  # type: ignore
         self._mw.pixel_dwell_time_us.valueChanged.connect(self._pixel_dwell_time_us)  # type: ignore
+        self._mw.ir_pulse_duration_us.valueChanged.connect(self._ir_pulse_duration_us)  # type: ignore
+        self._mw.wavelengths_per_pixel.valueChanged.connect(self._wavelengths_per_pixel)  # type: ignore
         self._mw.image_height.valueChanged.connect(self._image_height)  # type: ignore
         self._mw.image_width.valueChanged.connect(self._image_width)  # type: ignore
         self._mw.number_frames.valueChanged.connect(self._number_frames)  # type: ignore
@@ -257,6 +290,16 @@ class AlazarMirageControlGui(GuiBase):
     def _pixel_dwell_time_us(self, dwell: float):
         settings: MirageExperimentSettings = self._logic().experiment_info
         settings.pixel_dwell_time_us = dwell
+        self.sigUpdateAcquisitionSettings.emit(settings)  # type: ignore
+
+    def _ir_pulse_duration_us(self, pulse: float):
+        settings: MirageExperimentSettings = self._logic().experiment_info
+        settings.ir_pulse_period_us = pulse
+        self.sigUpdateAcquisitionSettings.emit(settings)  # type: ignore
+
+    def _wavelengths_per_pixel(self, num: int):
+        settings: MirageExperimentSettings = self._logic().experiment_info
+        settings.wavelengths_per_pixel = num
         self.sigUpdateAcquisitionSettings.emit(settings)  # type: ignore
 
     def _image_height(self, h: int):

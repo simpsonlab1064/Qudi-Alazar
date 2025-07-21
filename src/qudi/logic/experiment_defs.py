@@ -36,6 +36,10 @@ class BaseExperimentSettings(ABC):
         self.end_process_function = end_process_function
         self.sample_rate = sample_rate
 
+    @abstractmethod
+    def calc_records_per_acquisition(self) -> int:
+        pass
+
 
 class ImagingExperimentSettings(BaseExperimentSettings):
     """

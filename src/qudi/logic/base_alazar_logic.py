@@ -312,7 +312,7 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
 
         alazar.set_samples_per_record(self._calculate_samples_per_record())
         alazar.set_records_per_buffer(records_per_buffer)
-        alazar.set_records_per_acquisition(num_buffers)
+        alazar.set_records_per_acquisition(settings.calc_records_per_acquisition())
         alazar.set_acqusition_flag(mode)
         alazar.set_num_buffers(num_buffers)
 
