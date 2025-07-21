@@ -78,7 +78,7 @@ def _imaging(
 
     # Initialize on first buffer / board and every time we've finished averaging
     if buffer_index % settings.num_frames == 0 and board_index == 0:
-        data_list: list[npt.NDArray[np.float_]] = []
+        data_list: list[npt.NDArray[np.float64]] = []
         for _ in range(np.sum(total_enabled)):
             data_list.append(np.zeros((w, h)))
         data = ProcessedData(data=data_list)

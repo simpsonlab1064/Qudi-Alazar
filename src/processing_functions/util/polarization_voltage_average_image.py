@@ -11,7 +11,7 @@ def polarization_voltage_average_image(
     h: int,
     w: int,
     polarization_states: int,
-) -> npt.NDArray[np.float_]:
+) -> npt.NDArray[np.float64]:
     """
     Returns n = polarization_states images, with 0's where no data was collected.
     Output shape is (n, h, w).

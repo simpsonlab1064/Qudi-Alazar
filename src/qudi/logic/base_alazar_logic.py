@@ -89,7 +89,7 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
     _data: ProcessedData = ProcessedData(data=[])
     _display_data: list[DisplayData] = []
     _live_fn: FunctionType | None
-    _end_fun = FunctionType | None
+    _end_fn: FunctionType | None
     _running_live: bool = False
 
     def __init__(self, *args, **kwargs):  # type: ignore

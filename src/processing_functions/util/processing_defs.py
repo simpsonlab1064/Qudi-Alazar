@@ -40,7 +40,7 @@ class LiveProcessingInterface(Generic[T], ABC):
     def __call__(
         self,
         data: ProcessedData,
-        buf: npt.NDArray[Any],  # usually np.int_ or np.float_
+        buf: npt.NDArray[Any],  # usually np.int_ or np.float64
         settings: T,
         buffer_index: int,
         board_index: int,
@@ -86,7 +86,7 @@ class LiveProcessingInterface(Generic[T], ABC):
             def __call__(
                 self,
                 data: ProcessedData,
-                buf: npt.NDArray[Any],  # usually np.int_ or np.float_
+                buf: npt.NDArray[Any],  # usually np.int_ or np.float64
                 settings: S,
                 buffer_index: int,
                 board_index: int,
@@ -130,7 +130,7 @@ class EndProcessingInterface(Generic[T], ABC):
     @abstractmethod
     def __call__(
         self,
-        data: ProcessedData,  # usually np.int_ or np.float_
+        data: ProcessedData,  # usually np.int_ or np.float64
         settings: T,
         boards: list[BoardInfo],
     ) -> ProcessedData:
@@ -167,7 +167,7 @@ class EndProcessingInterface(Generic[T], ABC):
 
             def __call__(
                 self,
-                data: ProcessedData,  # usually np.int_ or np.float_
+                data: ProcessedData,  # usually np.int_ or np.float64
                 settings: S,
                 boards: list[BoardInfo],
             ) -> ProcessedData:

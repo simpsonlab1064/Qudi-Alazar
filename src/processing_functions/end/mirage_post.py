@@ -54,7 +54,7 @@ mirage_post = EndProcessingInterface[MirageExperimentSettings].from_function(
 
 
 def _generate_time_trace(
-    data: npt.NDArray[np.float_], settings: MirageExperimentSettings
+    data: npt.NDArray[np.float64], settings: MirageExperimentSettings
 ) -> ProcessedData:
     ns_per_tick = 1e9 / settings.sample_rate
     ticks_per_ir = round(settings.ir_pulse_period_us * 1e3 / ns_per_tick)
@@ -68,7 +68,7 @@ def _generate_time_trace(
     #     (settings.height, settings.width, settings.wavelengths_per_pixel, ticks_per_ir)
     # )
 
-    data_list: list[npt.NDArray[np.float_]] = []
+    data_list: list[npt.NDArray[np.float64]] = []
     label_list: list[str] = []
 
     for h in range(settings.height):

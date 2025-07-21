@@ -161,7 +161,7 @@ class AlazarPlotDisplayWindow(QtWidgets.QMainWindow):
         self.__resample()
 
     @QtCore.Slot(np.ndarray)  # type: ignore
-    def _plot_data(self, data: npt.NDArray[np.float_]):
+    def _plot_data(self, data: npt.NDArray[np.float64]):
         self._data_item.setData(x=data[0], y=data[1])  # type: ignore
 
     def __resample(self):

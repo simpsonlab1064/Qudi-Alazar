@@ -23,7 +23,7 @@ class DownsampleWorker(QtCore.QObject):
 
     @QtCore.Slot(np.ndarray, int, object)  # type: ignore
     def downsample(
-        self, data: npt.NDArray[np.float_], downsample: int, limits: list[float]
+        self, data: npt.NDArray[np.float64], downsample: int, limits: list[float]
     ):
         # Manually clip the data so pg doesn't have to do it in the main thread:
         start = np.argmin(np.abs(data - limits[0]))
@@ -40,12 +40,14 @@ class DownsampleWorker(QtCore.QObject):
         # the auto-resize button, it knows the full range
         if downsample > 1:
             x1 = data[0, start:end:downsample]
+            # x1 = _downsample(data[0], downsample)
             x = np.zeros(len(x1) + 2)
             x[1:-1] = x1
             x[0] = data[0, 0]
             x[-1] = data[0, -1]
 
             y1 = data[1, start:end:downsample]
+            # y1 = _downsample(data[1], downsample)
             y = np.zeros(len(y1) + 2)
             y[1:-1] = y1
             y[0] = data[1, 0]
@@ -56,3 +58,10 @@ class DownsampleWorker(QtCore.QObject):
             y = data[1, start:end]
 
         self.sigDownsampleFinished.emit(np.vstack((x, y)))  # type: ignore
+
+
+def _downsample(
+    data: npt.NDArray[np.float64], downsample: int
+) -> npt.NDArray[np.float64]:
+    chunks = np.resize(data, (round(np.ceil(len(data) / downsample)), downsample))
+    return np.mean(chunks, axis=1)

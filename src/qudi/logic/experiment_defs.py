@@ -95,11 +95,11 @@ class DisplayData:
 
     type: DisplayType
     label: str
-    data: npt.NDArray[np.float_]
+    data: npt.NDArray[np.float64]
 
     def __init__(
         self,
-        data: npt.NDArray[np.float_],
+        data: npt.NDArray[np.float64],
         type: DisplayType = DisplayType.IMAGE,
         label: str = "",
     ):
@@ -107,7 +107,7 @@ class DisplayData:
         self.label = label
         self.data = data
 
-    def add_data(self, data: npt.NDArray[np.float_]):
+    def add_data(self, data: npt.NDArray[np.float64]):
         self.data = self.data + data
 
     def divide_data(self, divisor: float):

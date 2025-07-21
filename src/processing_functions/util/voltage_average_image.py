@@ -12,7 +12,7 @@ def voltage_average_image(
     h: int,
     w: int,
     frames: int,
-) -> npt.NDArray[np.float_]:
+) -> npt.NDArray[np.float64]:
     image = np.zeros((h, w))
     samples = len(assignment)
 

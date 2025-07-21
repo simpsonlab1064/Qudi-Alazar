@@ -4,7 +4,7 @@ import numpy.typing as npt
 
 
 def sine_time_to_pix_num(
-    time: npt.NDArray[np.float_],
+    time: npt.NDArray[np.float64],
     pixels_per_line: int,
     mirror_period: float,
     fast_phase: float,

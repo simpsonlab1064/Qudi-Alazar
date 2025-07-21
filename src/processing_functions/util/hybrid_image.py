@@ -6,11 +6,11 @@ import numpy.typing as npt
 
 def hybrid_image(
     data: npt.NDArray[np.int_],
-    avg_image: npt.NDArray[np.float_],
-    pc_image: npt.NDArray[np.float_],
+    avg_image: npt.NDArray[np.float64],
+    pc_image: npt.NDArray[np.float64],
     lambda_threshold: int,
     voltage_range: int,
-) -> npt.NDArray[np.float_]:
+) -> npt.NDArray[np.float64]:
     adc_zero, volts_per_photon = _calibrate_volts_per_photon(
         data, avg_image, pc_image, voltage_range
     )
@@ -23,8 +23,8 @@ def hybrid_image(
 
 def _calibrate_volts_per_photon(
     data: npt.NDArray[np.int_],
-    avg_image: npt.NDArray[np.float_],
-    pc_image: npt.NDArray[np.float_],
+    avg_image: npt.NDArray[np.float64],
+    pc_image: npt.NDArray[np.float64],
     voltage_range: int,
 ) -> tuple[int, float]:
     """

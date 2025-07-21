@@ -13,7 +13,7 @@ def photon_counting_image(
     w: int,
     frames: int,
     threshold: int,
-) -> npt.NDArray[np.float_]:
+) -> npt.NDArray[np.float64]:
     image = np.zeros((h, w))
     samples = len(assignment)
 
