@@ -165,7 +165,7 @@ class AlazarCard(AlazarInterface):
                     self._configure_and_allocate()
 
                     if self.module_state() == "locked":
-                        self._acquire_live_data()
+                        self._acquire_data()
                         self.sigAcquisitionCompleted.emit()  # type: ignore
 
                         self.module_state.unlock()
@@ -184,7 +184,7 @@ class AlazarCard(AlazarInterface):
                     self._configure_and_allocate()
 
                     if self.module_state() == "locked":
-                        self._acquire_data()
+                        self._acquire_live_data()
                         self.sigAcquisitionCompleted.emit()  # type: ignore
 
                         self.module_state.unlock()
@@ -206,7 +206,7 @@ class AlazarCard(AlazarInterface):
             parameter=1 if high else 0,
         )
 
-    @QtCore.Slot(AcquisitionMode)  # type: ignore
+    @QtCore.Slot(object)  # type: ignore
     def set_acqusition_flag(self, flag: AcquisitionMode):
         with self._thread_lock:
             if self.module_state() == "idle":
@@ -219,7 +219,7 @@ class AlazarCard(AlazarInterface):
                 if flag == AcquisitionMode.TRIGGERED_STREAMING:
                     self._adma_flags += ats.ADMA_TRIGGERED_STREAMING
 
-    @QtCore.Slot(list[BoardInfo])  # type: ignore
+    @QtCore.Slot(object)  # type: ignore
     def configure_boards(self, boards: list[BoardInfo]):
         with self._thread_lock:
             if self.module_state() == "idle":
@@ -229,18 +229,17 @@ class AlazarCard(AlazarInterface):
     def _configure_and_allocate(self):
         """Expects mutex to be locked externally"""
         if self.module_state() == "locked":
+            i = 0
             for b in self._boards:
                 self._configure_board(b)
                 if self.module_state() == "locked":
                     if self._boards[0].internal.boardId != 1:
                         raise ValueError("The first board passed should be the master.")
-                    for b in self._boards:
-                        if b.internal.systemId != self._boards[0].internal.systemId:
-                            raise ValueError(
-                                "All the boards should be of the same system."
-                            )
-                        self._buffers.clear()
-                        self._allocate_buffers(b)
+                    if b.internal.systemId != self._boards[0].internal.systemId:
+                        raise ValueError("All the boards should be of the same system.")
+                    self._buffers[i].clear()
+                    self._allocate_buffers(b)
+                    i += 1
 
     def _configure_board(self, board: CombinedBoard):
         board.internal.setCaptureClock(  # type: ignore
