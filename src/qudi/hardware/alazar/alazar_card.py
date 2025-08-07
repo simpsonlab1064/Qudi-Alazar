@@ -82,12 +82,13 @@ class AlazarCard(AlazarInterface):
 
     def on_activate(self) -> None:
         letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        self._buffers: list[list[ats.DMABuffer]] = []
         for i in range(ats.boardsInSystemBySystemID(self._systemId)):  # type: ignore
             b = ats.Board(self._systemId, i + 1)
-            num_channels = b.getParameter(parameter=ats.GET_CHANNELS_PER_BOARD)  # type: ignore
+            num_channels = b.getParameter(parameter=ats.GET_CHANNELS_PER_BOARD, channel=0)  # type: ignore
             chans = [
                 ChannelInfo(label=f"Channel {letters[i]}")
-                for i in range(num_channels)  # type: ignore
+                for i in range(num_channels.value)  # type: ignore
             ]
             info = BoardInfo(channels=chans, label=f"Board {i}")
             self._boards.append(
@@ -97,11 +98,13 @@ class AlazarCard(AlazarInterface):
                 )
             )
 
+            self._buffers.append([])
+
             self._decimation = 0
-            if self._card_type == "c9440":
+            if self._card_type == "c9350":
                 self._decimation = 1
 
-            self._buffers: list[list[ats.DMABuffer]] = []
+            
             self._sample_type = ctypes.c_uint16
 
     def on_deactivate(self) -> None:
@@ -237,8 +240,9 @@ class AlazarCard(AlazarInterface):
                         raise ValueError("The first board passed should be the master.")
                     if b.internal.systemId != self._boards[0].internal.systemId:
                         raise ValueError("All the boards should be of the same system.")
-                    self._buffers[i].clear()
-                    self._allocate_buffers(b)
+                    if len(self._buffers) > i:
+                        self._buffers[i].clear()
+                    self._allocate_buffers(b, i)
                     i += 1
 
     def _configure_board(self, board: CombinedBoard):
@@ -311,7 +315,7 @@ class AlazarCard(AlazarInterface):
         trigger_timeout_samples = self._trigger_timeout * self._sample_rate
         board.internal.setTriggerTimeOut(trigger_timeout_samples)  # type: ignore
 
-    def _allocate_buffers(self, board: CombinedBoard):
+    def _allocate_buffers(self, board: CombinedBoard, board_idx: int):
         channel_count = board.info.count_enabled()
         samples_per_buffer = self.samples_per_buffer
 
@@ -330,16 +334,15 @@ class AlazarCard(AlazarInterface):
         if bytesPerSample > 1:
             self._sample_type = ctypes.c_uint16
 
-        self._buffers.append([])
-
         for _ in range(self._num_buffers):
-            self._buffers[-1].append(
+            self._buffers[board_idx].append(
                 ats.DMABuffer(
                     board.internal.handle,
                     self._sample_type,
                     bytesPerBuffer,
                 )
             )
+            
 
         board.internal.beforeAsyncRead(  # type: ignore
             channels,
@@ -350,7 +353,7 @@ class AlazarCard(AlazarInterface):
             self._adma_flags,
         )
 
-        for buf in self._buffers[-1]:
+        for buf in self._buffers[board_idx]:
             board.internal.postAsyncBuffer(buf.addr, buf.size_bytes)  # type: ignore
 
     def _acquire_data(self):
