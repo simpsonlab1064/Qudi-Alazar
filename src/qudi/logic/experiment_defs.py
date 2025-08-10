@@ -49,8 +49,8 @@ class ImagingExperimentSettings(BaseExperimentSettings):
 
     width: int
     height: int
-    mirror_period_us: float  # in us
-    fast_mirror_phase: float
+    fast_motion_period_us: float  # in us
+    fast_motion_phase: float
     num_frames: int
 
     @abstractmethod
@@ -63,14 +63,14 @@ class ImagingExperimentSettings(BaseExperimentSettings):
         live_process_function: str | None = None,
         end_process_function: str | None = None,
         sample_rate: int = 50_000_000,
-        mirror_period_us: float = 1000.0,
-        fast_mirror_phase: float = 0,
+        fast_motion_period_us: float = 1000.0,
+        fast_motion_phase: float = 0,
         num_frames: int = 1,
     ):
         self.width = width
         self.height = height
-        self.mirror_period_us = mirror_period_us
-        self.fast_mirror_phase = 0
+        self.fast_motion_period_us = fast_motion_period_us
+        self.fast_motion_phase = 0
         self.num_frames = num_frames
 
         super().__init__(

@@ -47,8 +47,8 @@ class GalvoResExperimentSettings(ImagingExperimentSettings):
             do_autosave=do_autosave,
             live_process_function=live_processing_function,
             end_process_function=end_processing_function,
-            fast_mirror_phase=fast_mirror_phase,
-            mirror_period_us=mirror_period_us,
+            fast_motion_phase=fast_mirror_phase,
+            fast_motion_period_us=mirror_period_us,
             num_frames=num_frames,
         )
 
@@ -56,13 +56,13 @@ class GalvoResExperimentSettings(ImagingExperimentSettings):
         return self.num_frames
 
     def scan_freq_hz(self) -> float:
-        return 1e6 / self.mirror_period_us
+        return 1e6 / self.fast_motion_period_us
 
     @staticmethod  # The order here is important -- it must match the __init__ order
     def representer_func(instance: GalvoResExperimentSettings) -> list[object]:
         return [
-            instance.fast_mirror_phase,
-            instance.mirror_period_us,
+            instance.fast_motion_phase,
+            instance.fast_motion_period_us,
             instance.width,
             instance.height,
             instance.num_frames,
@@ -195,7 +195,7 @@ class GalvoResLogic(BaseAlazarLogic[GalvoResExperimentSettings]):
         samps: float = 0
         samples_per_line = (
             1e3
-            * self._settings.mirror_period_us
+            * self._settings.fast_motion_period_us
             / (1e9 / float(self._settings.sample_rate))
         )
 

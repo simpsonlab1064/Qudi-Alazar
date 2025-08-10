@@ -1,22 +1,25 @@
 from __future__ import annotations
 
-__all__ = ["MirageLogic"]
+__all__ = ["PiezoLogic"]
 
 from PySide2 import QtCore
 import numpy as np
 import numpy.typing as npt
-
+from logging import Logger
 from qudi.core.configoption import ConfigOption  # type: ignore
 from qudi.core.statusvariable import StatusVar  # type: ignore
+from qudi.core.connector import Connector  # type: ignore
 from qudi.logic.base_alazar_logic import BaseAlazarLogic
 from qudi.logic.experiment_defs import ImagingExperimentSettings
 from qudi.interface.alazar_interface import BoardInfo, AcquisitionMode
+from qudi.interface.piezo_stage_interface import PiezoScanSettings, PiezoStageInterface
 
 
-class MirageExperimentSettings(ImagingExperimentSettings):
+class PiezoExperimentSettings(ImagingExperimentSettings):
     pixel_dwell_time_us: float
     ir_pulse_period_us: float
     wavelengths_per_pixel: int
+    piezo_settings: PiezoScanSettings
 
     def __init__(
         self,
@@ -25,6 +28,7 @@ class MirageExperimentSettings(ImagingExperimentSettings):
         pixel_dwell_time_us: float = 10000,
         ir_pulse_period_us: float = 10000,
         wavelengths_per_pixel: int = 1,
+        piezo_settings: PiezoScanSettings = PiezoScanSettings(),
         width: int = 512,
         height: int = 512,
         num_frames: int = 1,
@@ -35,6 +39,7 @@ class MirageExperimentSettings(ImagingExperimentSettings):
     ):
         self.width = width
         self.height = height
+        self.piezo_settings = piezo_settings
         self.pixel_dwell_time_us = pixel_dwell_time_us
         self.ir_pulse_period_us = ir_pulse_period_us
         self.wavelengths_per_pixel = wavelengths_per_pixel
@@ -57,14 +62,65 @@ class MirageExperimentSettings(ImagingExperimentSettings):
     def scan_freq_hz(self) -> float:
         return 1e6 / self.fast_motion_period_us
 
+    # TODO: Camryn: I had to guess here as to what your parameters should be.
+    # Make sure this seems like it will work for you.
+    # Also, I'm just curious, why does it control this way (with wave A and
+    # wave B)? Is that something that the piezo stage needs? Or just a way to
+    # make sure that the clock cycles are lined up correctly?
+    def update_piezo_settings(self, logger: Logger) -> PiezoScanSettings:
+        """
+        This function modifies self in-place and returns the updated
+        version of the [PiezoScanSettings] for passing to the hardware.
+        """
+        p_settings = self.piezo_settings
+        clk = p_settings.clk
+        clk_period = 1 / clk  # in sec
+        fast_dwell = self.pixel_dwell_time_us * 1e6  # in seconds
+        clks_per_fast = fast_dwell / clk_period
+
+        if clks_per_fast % 2 != 0:
+            logger.warning(
+                f"Pixel dwell time ({fast_dwell}) is not an even multiple of clock period. This means that the desired pixel dwell time cannot be met. Number of clocks per dwell time: {clks_per_fast}"
+            )
+
+        clks_per_fast = round(clks_per_fast)
+
+        a_wave_period = clk_period * 2
+        a_wave_on = round(clks_per_fast / 2)
+        a_wave_off = 0
+        b_wave_period = a_wave_period * (a_wave_on + a_wave_off)
+        fast_wave_b_pulses = fast_dwell / b_wave_period
+
+        if fast_wave_b_pulses % 1 != 0:
+            logger.warning(
+                f"Number of wave b pulses per fast pulse is not an integer. It is: {fast_wave_b_pulses}"
+            )
+
+        fast_wave_b_pulses = round(fast_wave_b_pulses)
+
+        out_settings = PiezoScanSettings(
+            a_wave_on=a_wave_on,
+            a_wave_off=a_wave_off,
+            fast_wave_b_pulses=fast_wave_b_pulses,
+            fast_wave_ramp_steps=self.width,
+            fast_wave_scans_per_slow=1,  # TODO: Camryn, if you want more scans change it
+            slow_wave_ramp_steps=self.height,
+            slow_wave_scans_per_trigger=self.num_frames,
+            slow_wave_enable_mode=self.piezo_settings.slow_wave_enable_mode,
+        )
+
+        self.piezo_settings = out_settings
+        return out_settings
+
     @staticmethod  # The order here is important -- it must match the __init__ order
-    def representer_func(instance: MirageExperimentSettings) -> list[object]:
+    def representer_func(instance: PiezoExperimentSettings) -> list[object]:
         return [
             instance.fast_motion_phase,
             instance.fast_motion_period_us,
             instance.pixel_dwell_time_us,
             instance.ir_pulse_period_us,
             instance.wavelengths_per_pixel,
+            instance.piezo_settings,  # TODO: check if called recursively (hopefully)
             instance.width,
             instance.height,
             instance.num_frames,
@@ -75,12 +131,12 @@ class MirageExperimentSettings(ImagingExperimentSettings):
         ]
 
     @staticmethod
-    def constructor_func(yaml_data: object) -> MirageExperimentSettings:
-        return MirageExperimentSettings(*yaml_data)  # type: ignore
-        # return yaml_data
+    def constructor_func(yaml_data: object) -> PiezoExperimentSettings:
+        # return PiezoExperimentSettings(*yaml_data)  # type: ignore
+        return yaml_data  # TODO: This appears to not store stuff. I don't know why
 
 
-class MirageLogic(BaseAlazarLogic[MirageExperimentSettings]):
+class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
     """
     This contains logic for running an experiment using both the mIRage and
     laser
@@ -88,9 +144,10 @@ class MirageLogic(BaseAlazarLogic[MirageExperimentSettings]):
     Example config that goes into the config file:
 
     example_logic:
-        module.Class: 'mirage_logic.MirageLogic'
+        module.Class: 'piezo_logic.PiezoLogic'
         connect:
             alazar: alazar
+            piezo_stage: piezo_stage
         options:
             num_buffers: 0 # 0 to use as many buffers as needed to prevent
                            # overflows. However, this might exhaust
@@ -104,19 +161,51 @@ class MirageLogic(BaseAlazarLogic[MirageExperimentSettings]):
 
     """
 
-    _settings: MirageExperimentSettings = StatusVar(
-        name="mirage_settings",
-        default=MirageExperimentSettings(),
-        constructor=MirageExperimentSettings.constructor_func,
-        representer=MirageExperimentSettings.representer_func,
+    _min_mod: float = ConfigOption(name="min_mod", default=1e-12, missing="info")  # type: ignore
+
+    _settings: PiezoExperimentSettings = StatusVar(
+        name="piezo_settings",
+        default=PiezoExperimentSettings(),
+        constructor=PiezoExperimentSettings.constructor_func,
+        representer=PiezoExperimentSettings.representer_func,
     )  # type: ignore
 
-    _min_mod: float = ConfigOption(name="min_mod", default=1e-12, missing="info")  # type: ignore
+    _piezo_stage = Connector(name="piezo_stage", interface="PiezoStageInterface")
+
+    # Signals:
+    sigSettingsUpdated = QtCore.Signal(object)  # is a PiezoScanSettings
+    sigStartStage = QtCore.Signal()
+    sigStopStage = QtCore.Signal()
 
     def __init__(self, *args, **kwargs):  # type: ignore
         super().__init__(*args, **kwargs)  # type: ignore
 
     def on_activate(self) -> None:
+        piezo: PiezoStageInterface = self._piezo_stage()
+
+        # Pull up settings from hardware config:
+        p_settings = piezo.get_settings
+        self._settings.piezo_settings.clk = p_settings.clk
+        self._settings.piezo_settings.wave_f_mode = p_settings.wave_f_mode
+        self._settings.piezo_settings.enable_polarity = p_settings.enable_polarity
+
+        #### OUTPUTS ####
+        self.sigSettingsUpdated.connect(  # type: ignore
+            piezo.update_settings, QtCore.Qt.QueuedConnection
+        )
+        self.sigStartStage.connect(  # type: ignore
+            piezo.download_and_arm, QtCore.Qt.QueuedConnection
+        )
+        self.sigStopStage.connect(  # type: ignore
+            piezo.end_scan, QtCore.Qt.QueuedConnection
+        )
+
+        #### INPUTS ####
+        piezo.sigStageArmed.connect(  # type: ignore
+            self._stage_armed
+        )
+
+        #### Super Stuff ####
         super().on_activate()
 
     def on_deactivate(self) -> None:
@@ -127,7 +216,7 @@ class MirageLogic(BaseAlazarLogic[MirageExperimentSettings]):
         return super().board_info
 
     @property
-    def experiment_info(self) -> MirageExperimentSettings:
+    def experiment_info(self) -> PiezoExperimentSettings:
         return super().experiment_info
 
     @QtCore.Slot(object)  # type: ignore
@@ -142,6 +231,11 @@ class MirageLogic(BaseAlazarLogic[MirageExperimentSettings]):
     def _acquisition_completed(self):
         super()._acquisition_completed()
 
+    # TODO: Camryn: you will need to adjust both "start_*" functions to
+    # work the way you want. Basically, I don't know how things are triggering
+    # each other. My guess is that you'll want to break it into two pieces, one
+    # arming the stage and then the second starting Alazar (after the stage)
+    # is primed and ready
     @QtCore.Slot()  # type: ignore
     def start_acquisition(self):
         num_b = (
@@ -151,9 +245,10 @@ class MirageLogic(BaseAlazarLogic[MirageExperimentSettings]):
         )
         self._apply_configuration(
             settings=self._settings,
-            mode=AcquisitionMode.NPT,
+            mode=AcquisitionMode.NPT,  # TODO: Camryn, is this what you want?
             num_buffers=num_b,
         )
+        self.sigStartStage.emit()  # TODO: Camryn
         super().start_acquisition()
 
     @QtCore.Slot(int)  # type: ignore
@@ -166,6 +261,7 @@ class MirageLogic(BaseAlazarLogic[MirageExperimentSettings]):
             mode=AcquisitionMode.NPT,
             num_buffers=self._settings.num_frames,
         )
+        self.sigStartStage.emit()  # TODO: Camryn
         super().start_live_acquisition()
 
     @QtCore.Slot()  # type: ignore
@@ -173,8 +269,14 @@ class MirageLogic(BaseAlazarLogic[MirageExperimentSettings]):
         super().stop_acquisition()
 
     @QtCore.Slot(object)  # type: ignore
-    def configure_acquisition(self, settings: MirageExperimentSettings):
-        super().configure_acquisition(settings)
+    def configure_acquisition(self, settings: PiezoExperimentSettings):
+        p_settings = self._settings.piezo_settings
+        super().configure_acquisition(settings)  # This resets all the _settings
+        self._settings.piezo_settings = p_settings
+        self._settings.update_piezo_settings(logger=self.log)
+
+        # Now we need to update the piezo stage settings and pass those updates
+        # to the hardware module:
 
     @QtCore.Slot()  # type: ignore
     def save_data(self):
@@ -185,11 +287,13 @@ class MirageLogic(BaseAlazarLogic[MirageExperimentSettings]):
 
     def _apply_configuration(
         self,
-        settings: MirageExperimentSettings,
+        settings: PiezoExperimentSettings,
         mode: AcquisitionMode,
         num_buffers: int,
         records_per_buffer: int = 1,
     ):
+        self.sigSettingsUpdated.emit(self._settings.piezo_settings)  # type: ignore
+
         super()._apply_configuration(
             settings,
             mode,
@@ -197,6 +301,12 @@ class MirageLogic(BaseAlazarLogic[MirageExperimentSettings]):
             records_per_buffer,
         )
 
+    # TODO: Camryn: Implement this function. This is what I have for the mIRage
+    # system -- not sure if yours should be the same (or not...)
+    # It needs to return how many samples you want per record, which for us, is
+    # equivalent to how many there are per buffer. For the mIRage, this is
+    # one pixel-wavelength (e.g. samples to fill the IR laser dwell time at a
+    # given wavelength).
     def _calculate_samples_per_record(self) -> int:
         """Note that this is per-channel"""
         samps: float = 0
@@ -237,3 +347,7 @@ class MirageLogic(BaseAlazarLogic[MirageExperimentSettings]):
     def _update_display_data(self):
         if self._buffer_index % self._settings.num_frames == 0:
             super()._update_display_data()
+
+    @QtCore.Slot()  # type: ignore
+    def _stage_armed(self):
+        pass
