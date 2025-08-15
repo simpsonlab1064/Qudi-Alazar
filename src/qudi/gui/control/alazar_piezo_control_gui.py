@@ -17,11 +17,11 @@ pg.setConfigOption("useOpenGL", True)  # Add this at the top of your file # type
 # to add them here if you'd like. Make sure you connect their respective signals
 # if needed
 class PiezoControlWindow(QtWidgets.QMainWindow):
-    """Main window for mIRage measurement"""
+    """Main window for Piezo measurement"""
 
     def __init__(self, *args, **kwargs):  # type: ignore
         super().__init__(*args, **kwargs)  # type: ignore
-        self.setWindowTitle("Alazar mIRage Control")
+        self.setWindowTitle("Alazar Piezo Control")
 
         # Create menu bar
         menu_bar = QtWidgets.QMenuBar()

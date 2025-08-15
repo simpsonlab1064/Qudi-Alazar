@@ -176,6 +176,9 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
     sigSettingsUpdated = QtCore.Signal(object)  # is a PiezoScanSettings
     sigStartStage = QtCore.Signal()
     sigStopStage = QtCore.Signal()
+        # Track what we intend to start once the stage is armed
+    _pending_start_kind: str | None = None  # "normal" or "live"
+
 
     def __init__(self, *args, **kwargs):  # type: ignore
         super().__init__(*args, **kwargs)  # type: ignore
@@ -236,6 +239,34 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
     # each other. My guess is that you'll want to break it into two pieces, one
     # arming the stage and then the second starting Alazar (after the stage)
     # is primed and ready
+    #@QtCore.Slot()  # type: ignore
+    #def start_acquisition(self):
+        #num_b = (
+        #    self._settings.calc_records_per_acquisition()
+        #    if self._num_buffers == 0
+        #    else self._num_buffers
+       # )
+       # self._apply_configuration(
+      #      settings=self._settings,
+     #       mode=AcquisitionMode.NPT,  # TODO: Camryn, is this what you want?
+    #        num_buffers=num_b,
+   #     )
+  #      self.sigStartStage.emit()  # TODO: Camryn
+ #       super().start_acquisition()
+#
+    #@QtCore.Slot(int)  # type: ignore
+    #def start_live_acquisition(self):
+        #live_settings = self._settings
+        #live_settings.num_frames = self._settings.num_frames
+        #live_settings.live_process_function = self._live_viewing_fn
+        #self._apply_configuration(
+        #    settings=live_settings,
+       #     mode=AcquisitionMode.NPT,
+       #     num_buffers=self._settings.num_frames,
+       # )
+        #self.sigStartStage.emit()  # TODO: Camryn
+        #super().start_live_acquisition()
+
     @QtCore.Slot()  # type: ignore
     def start_acquisition(self):
         num_b = (
@@ -245,11 +276,11 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
         )
         self._apply_configuration(
             settings=self._settings,
-            mode=AcquisitionMode.NPT,  # TODO: Camryn, is this what you want?
+            mode=AcquisitionMode.NPT,  # keep unless you know you need a different mode
             num_buffers=num_b,
         )
-        self.sigStartStage.emit()  # TODO: Camryn
-        super().start_acquisition()
+        self._pending_start_kind = "normal"
+        self.sigStartStage.emit()   # Stage arms now; Alazar start happens in _stage_armed()
 
     @QtCore.Slot(int)  # type: ignore
     def start_live_acquisition(self):
@@ -261,12 +292,21 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
             mode=AcquisitionMode.NPT,
             num_buffers=self._settings.num_frames,
         )
-        self.sigStartStage.emit()  # TODO: Camryn
-        super().start_live_acquisition()
+        self._pending_start_kind = "live"
+        self.sigStartStage.emit()   # Stage arms now; Alazar start happens in _stage_armed()
 
+
+    #@QtCore.Slot()  # type: ignore
+    #def stop_acquisition(self):
+        #super().stop_acquisition()
+    
     @QtCore.Slot()  # type: ignore
     def stop_acquisition(self):
+        # Stop the piezo stage first
+        self.sigStopStage.emit()
+        # Then stop the Alazar acquisition
         super().stop_acquisition()
+
 
     @QtCore.Slot(object)  # type: ignore
     def configure_acquisition(self, settings: PiezoExperimentSettings):
@@ -348,6 +388,19 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
         if self._buffer_index % self._settings.num_frames == 0:
             super()._update_display_data()
 
+   # @QtCore.Slot()  # type: ignore
+   # def _stage_armed(self):
+        #pass
+
     @QtCore.Slot()  # type: ignore
     def _stage_armed(self):
-        pass
+        kind = self._pending_start_kind
+        self._pending_start_kind = None
+
+        if kind == "normal":
+            super().start_acquisition()
+        elif kind == "live":
+            super().start_live_acquisition()
+        else:
+            # No pending start requested; nothing to do
+            return
