@@ -56,22 +56,6 @@ class PiezoControlWindow(QtWidgets.QMainWindow):
         self.do_live.setCheckable(True)
         self.do_live.setText("Live Viewing?")
 
-        self.pixel_dwell_time_us_label = QtWidgets.QLabel("Pixel Dwell Time (us)")
-        self.pixel_dwell_time_us = QtWidgets.QDoubleSpinBox()
-        self.pixel_dwell_time_us.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons)  # type: ignore
-        self.pixel_dwell_time_us.setAlignment(QtCore.Qt.AlignHCenter)  # type: ignore
-        self.pixel_dwell_time_us.setRange(1, 100000)
-        self.pixel_dwell_time_us.setDecimals(4)
-
-        self.ir_pulse_duration_us_label = QtWidgets.QLabel(
-            "IR Laser Pulse Duration (us)"
-        )
-        self.ir_pulse_duration_us = QtWidgets.QDoubleSpinBox()
-        self.ir_pulse_duration_us.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons)  # type: ignore
-        self.ir_pulse_duration_us.setAlignment(QtCore.Qt.AlignHCenter)  # type: ignore
-        self.ir_pulse_duration_us.setRange(1, 100000)
-        self.ir_pulse_duration_us.setDecimals(4)
-
         self.wavelengths_per_pixel_label = QtWidgets.QLabel("Wavelengths Per Pixel")
         self.wavelengths_per_pixel = QtWidgets.QSpinBox()
         self.wavelengths_per_pixel.setButtonSymbols(
@@ -119,18 +103,6 @@ class PiezoControlWindow(QtWidgets.QMainWindow):
 
         control_layout = QtWidgets.QVBoxLayout()
 
-        control_layout.addWidget(
-            self.pixel_dwell_time_us_label,
-            0,
-            QtCore.Qt.AlignBottom,  # type: ignore
-        )
-        control_layout.addWidget(self.pixel_dwell_time_us, 0, QtCore.Qt.AlignTop)  # type: ignore
-        control_layout.addWidget(
-            self.ir_pulse_duration_us_label,
-            0,
-            QtCore.Qt.AlignBottom,  # type: ignore
-        )
-        control_layout.addWidget(self.ir_pulse_duration_us, 0, QtCore.Qt.AlignBottom)  # type: ignore
         control_layout.addWidget(
             self.wavelengths_per_pixel_label,
             0,
@@ -182,8 +154,6 @@ class AlazarPiezoControlGui(GuiBase):
         # Pull stored values to re-populate:
         settings = logic.experiment_info
 
-        self._mw.pixel_dwell_time_us.setValue(settings.pixel_dwell_time_us)
-        self._mw.ir_pulse_duration_us.setValue(settings.ir_pulse_period_us)
         self._mw.wavelengths_per_pixel.setValue(settings.wavelengths_per_pixel)
         self._mw.image_height.setValue(settings.height)
         self._mw.image_width.setValue(settings.width)
@@ -199,8 +169,6 @@ class AlazarPiezoControlGui(GuiBase):
         self._mw.save_folder.setText(settings.autosave_file_path if not None else "")  # type: ignore
 
         # Connect internal signals:
-        self._mw.pixel_dwell_time_us.valueChanged.connect(self._pixel_dwell_time_us)  # type: ignore
-        self._mw.ir_pulse_duration_us.valueChanged.connect(self._ir_pulse_duration_us)  # type: ignore
         self._mw.wavelengths_per_pixel.valueChanged.connect(self._wavelengths_per_pixel)  # type: ignore
         self._mw.image_height.valueChanged.connect(self._image_height)  # type: ignore
         self._mw.image_width.valueChanged.connect(self._image_width)  # type: ignore
@@ -271,16 +239,6 @@ class AlazarPiezoControlGui(GuiBase):
     @QtCore.Slot(float)  # type: ignore
     def _progress_update(self, percent: float):
         self._mw.progress_bar.setValue(round(percent))
-
-    def _pixel_dwell_time_us(self, dwell: float):
-        settings: PiezoExperimentSettings = self._logic().experiment_info
-        settings.pixel_dwell_time_us = dwell
-        self.sigUpdateAcquisitionSettings.emit(settings)  # type: ignore
-
-    def _ir_pulse_duration_us(self, pulse: float):
-        settings: PiezoExperimentSettings = self._logic().experiment_info
-        settings.ir_pulse_period_us = pulse
-        self.sigUpdateAcquisitionSettings.emit(settings)  # type: ignore
 
     def _wavelengths_per_pixel(self, num: int):
         settings: PiezoExperimentSettings = self._logic().experiment_info

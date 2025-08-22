@@ -16,7 +16,7 @@ byteorder: str = "little"
 
 
 class PiezoScanSettings:
-    clk: int  # in Hz, pulled from hardware config
+    clk: float  # in Hz, pulled from hardware config
     enable_polarity: int  # 0 for LOW 1 for HI, pulled from config
     wave_f_mode: int  # 0 for triangular, 1 for ramp, pulled from config
     a_wave_on: int
@@ -47,7 +47,7 @@ class PiezoScanSettings:
         self.slow_wave_ramp_steps = slow_wave_ramp_steps
         self.slow_wave_scans_per_trigger = slow_wave_scans_per_trigger
         self.slow_wave_enable_mode = slow_wave_enable_mode
-        self.clk = 40_000
+        self.clk = 200
         self.enable_polarity = 1
         self.wave_f_mode = 0
 

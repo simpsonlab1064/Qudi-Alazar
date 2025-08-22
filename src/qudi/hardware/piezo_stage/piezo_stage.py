@@ -26,7 +26,7 @@ class PiezoStage(PiezoStageInterface):
     piezo_stage:
         module.Class: 'piezo_stage.piezo_stage.PiezoStage'
         options:
-            clock: 40_000 # in Hz, clock frequency into the piezo control box
+            clock: 208.3 # in Hz, clock frequency into the piezo control box
             enable_polarity: 1 # 0 for LO, 1 for HI
             wave_f_mode: 1 # 0 for ramp, 1 for triangle
             fast_v_max: 10 # in V
@@ -38,7 +38,7 @@ class PiezoStage(PiezoStageInterface):
     """
 
     # Declare static parameters that can/must be declared in the qudi configuration
-    _clock: int = ConfigOption(name="clock", default=40_000, missing="warn")  # type: ignore
+    _clock: float = ConfigOption(name="clock", default=200, missing="warn")  # type: ignore
 
     _enable_polarity: int = ConfigOption(
         name="enable_polarity", default=1, missing="warn"
