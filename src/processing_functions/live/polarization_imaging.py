@@ -69,9 +69,11 @@ def _polarization_imaging(
 
     num_enabled = boards[board_index].count_enabled()
 
-    t = np.arange(start=ns_per_sample, stop=total_time + 1, step=ns_per_sample)
+    t = np.arange(
+        start=ns_per_sample, stop=total_time + 1, step=ns_per_sample, dtype=int
+    )
     t = sine_time_to_pix_num(
-        t, w, settings.mirror_period_us * 1e3, settings.fast_mirror_phase
+        t, w, settings.fast_motion_period_us * 1e3, settings.fast_motion_phase
     )
 
     polarization_states = 10
@@ -89,7 +91,7 @@ def _polarization_imaging(
 
     # Initialize on first buffer / board and every time we've finished averaging
     if buffer_index % settings.num_frames == 0 and board_index == 0:
-        data_list: list[npt.NDArray[np.float_]] = []
+        data_list: list[npt.NDArray[np.float64]] = []
         for _ in range(polarization_states * np.sum(total_enabled)):
             data_list.append(np.zeros((w, h)))
         data = ProcessedData(data=data_list)

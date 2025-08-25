@@ -86,7 +86,9 @@ class AlazarCard(AlazarInterface):
         self._buffers: list[list[ats.DMABuffer]] = []
         for i in range(ats.boardsInSystemBySystemID(self._systemId)):  # type: ignore
             b = ats.Board(self._systemId, i + 1)
-            num_channels = b.getParameter(parameter=ats.GET_CHANNELS_PER_BOARD, channel=0)  # type: ignore
+            num_channels = b.getParameter(  # type: ignore
+                parameter=ats.GET_CHANNELS_PER_BOARD, channel=0
+            )
             chans = [
                 ChannelInfo(label=f"Channel {letters[i]}")
                 for i in range(num_channels.value)  # type: ignore
@@ -105,7 +107,6 @@ class AlazarCard(AlazarInterface):
             if self._card_type == "c9350":
                 self._decimation = 1
 
-            
             self._sample_type = ctypes.c_uint16
 
     def on_deactivate(self) -> None:
@@ -343,7 +344,6 @@ class AlazarCard(AlazarInterface):
                     bytesPerBuffer,
                 )
             )
-            
 
         board.internal.beforeAsyncRead(  # type: ignore
             channels,

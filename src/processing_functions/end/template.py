@@ -1,7 +1,6 @@
 __all__ = ["template"]
 
 import numpy as np
-import numpy.typing as npt
 from qudi.logic.base_alazar_logic import BaseExperimentSettings
 from qudi.interface.alazar_interface import BoardInfo
 from processing_functions.util.processing_defs import (
@@ -35,15 +34,13 @@ The return should be a ProcessedData object
 
 # Functions must use the variable names here (data, settings, boards)
 def _template(
-    data: npt.NDArray[
-        np.float_
-    ],  # Note: this could also be a np.int_ depending on your use case
+    data: ProcessedData,
     settings: BaseExperimentSettings,
     boards: list[BoardInfo],
 ) -> ProcessedData:
     out = np.zeros((512 * 512,))
     for i, b in enumerate(boards):
-        d = data[i]
+        d = data.data[i]
         c_idx = 0
         for _, c in enumerate(b.channels):
             if c.enabled:

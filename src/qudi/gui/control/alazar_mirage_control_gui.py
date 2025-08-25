@@ -190,7 +190,7 @@ class AlazarMirageControlGui(GuiBase):
         # Pull stored values to re-populate:
         settings = logic.experiment_info
 
-        self._mw.fast_mirror_phase.setValue(settings.fast_mirror_phase)
+        self._mw.fast_mirror_phase.setValue(settings.fast_motion_phase)
         self._mw.pixel_dwell_time_us.setValue(settings.pixel_dwell_time_us)
         self._mw.ir_pulse_duration_us.setValue(settings.ir_pulse_period_us)
         self._mw.wavelengths_per_pixel.setValue(settings.wavelengths_per_pixel)
@@ -284,7 +284,7 @@ class AlazarMirageControlGui(GuiBase):
 
     def _fast_mirror_update(self, phase: float):
         settings: MirageExperimentSettings = self._logic().experiment_info
-        settings.fast_mirror_phase = phase
+        settings.fast_motion_phase = phase
         self.sigUpdateAcquisitionSettings.emit(settings)  # type: ignore
 
     def _pixel_dwell_time_us(self, dwell: float):

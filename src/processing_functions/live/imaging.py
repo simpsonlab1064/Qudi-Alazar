@@ -67,9 +67,11 @@ def _imaging(
 
     num_enabled = boards[board_index].count_enabled()
 
-    t = np.arange(start=ns_per_sample, stop=total_time + 1, step=ns_per_sample)
+    t = np.arange(
+        start=ns_per_sample, stop=total_time + 1, step=ns_per_sample, dtype=int
+    )
     t = sine_time_to_pix_num(
-        t, w, settings.mirror_period_us * 1e3, settings.fast_mirror_phase
+        t, w, settings.fast_motion_period_us * 1e3, settings.fast_motion_phase
     )
 
     total_enabled: list[int] = []
