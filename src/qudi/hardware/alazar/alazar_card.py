@@ -29,7 +29,8 @@ class CombinedBoard:
         self.internal = internal
 
     def valid_conf(self) -> bool:
-        return self.info.count_enabled() > 0 and self.info.count_enabled() % 2 == 0
+        enabled = self.info.count_enabled()
+        return enabled > 0 and (enabled % 2 == 0 or enabled == 1)
 
 
 class AlazarCard(AlazarInterface):
@@ -405,7 +406,7 @@ class AlazarCard(AlazarInterface):
 
             # TODO: check if this needs a .copy() (or not)
             # Maybe do the copy on the other end
-            self.sigNewData.emit(buf.buffer)  # type: ignore
+            self.sigNewData.emit(buf.buffer.copy())  # type: ignore
 
             self._boards[b].internal.postAsyncBuffer(  # type: ignore
                 buf.addr,

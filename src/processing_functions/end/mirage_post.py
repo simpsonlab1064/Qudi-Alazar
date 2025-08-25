@@ -41,10 +41,9 @@ def _mirage_post(
             if c.enabled:
                 temp = data.data[i][chan_idx::num_enabled]
                 chan_idx += 1
-
-                if i == 0:
-                    out = _generate_time_trace(temp, settings)
-
+                p_temp = _generate_time_trace(temp, settings, label_str=f"Board {i}, Chan. {c}")
+                out.data.extend(p_temp.data)
+                out.labels.extend(p_temp.labels)
     return out
 
 
@@ -54,7 +53,7 @@ mirage_post = EndProcessingInterface[MirageExperimentSettings].from_function(
 
 
 def _generate_time_trace(
-    data: npt.NDArray[np.float64], settings: MirageExperimentSettings
+    data: npt.NDArray[np.float64], settings: MirageExperimentSettings, label_str: str,
 ) -> ProcessedData:
     ns_per_tick = 1e9 / settings.sample_rate
     ticks_per_ir = round(settings.ir_pulse_period_us * 1e3 / ns_per_tick)
@@ -83,7 +82,10 @@ def _generate_time_trace(
                     trace += data[start:end]
 
                 data_list.append(trace)
-                label_list.append(f"({w}, {h}) at λ {n}")
+                label_list.append(f"{label_str}: ({w}, {h}) at λ {n}")
+
 
     out: ProcessedData = ProcessedData(data=data_list, labels=label_list)
     return out
+
+    
