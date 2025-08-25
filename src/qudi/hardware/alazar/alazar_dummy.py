@@ -107,13 +107,18 @@ class AlazarDummy(AlazarInterface):
 
     @QtCore.Slot()  # type: ignore
     def start_acquisition(self):
-        if self.module_state() == "idle":
-            self.module_state.lock()
-            self._acquire_data()
+        if all([x.valid_conf() for x in self._boards]):
+            if self.module_state() == "idle":
+                self.module_state.lock()
+                self._acquire_data()
 
-            self.sigAcquisitionCompleted.emit()  # type: ignore
+                self.sigAcquisitionCompleted.emit()  # type: ignore
 
-            self.module_state.unlock()
+                self.module_state.unlock()
+        else:
+            self.log.warning(
+                "Not all boards have allowed channels active (at least one channel and if more than one it must be a multiple of 2)"
+            )
 
     @QtCore.Slot()  # type: ignore
     def start_live_acquisition(self):

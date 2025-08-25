@@ -78,6 +78,7 @@ class PiezoStage(PiezoStageInterface):
 
     def on_deactivate(self) -> None:
         super().on_deactivate()
+        self._serial.close()
 
     @property
     def running(self) -> bool:
