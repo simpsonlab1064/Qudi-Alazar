@@ -16,8 +16,6 @@ from qudi.interface.piezo_stage_interface import PiezoScanSettings, PiezoStageIn
 
 
 class PiezoExperimentSettings(ImagingExperimentSettings):
-    pixel_dwell_time_us: float
-    ir_pulse_period_us: float
     wavelengths_per_pixel: int
     piezo_settings: PiezoScanSettings
 
@@ -25,8 +23,6 @@ class PiezoExperimentSettings(ImagingExperimentSettings):
         self,
         fast_mirror_phase: float = 0,
         mirror_period_us: float = 1000,
-        pixel_dwell_time_us: float = 10000,
-        ir_pulse_period_us: float = 10000,
         wavelengths_per_pixel: int = 1,
         piezo_settings: PiezoScanSettings = PiezoScanSettings(),
         width: int = 512,
@@ -40,8 +36,6 @@ class PiezoExperimentSettings(ImagingExperimentSettings):
         self.width = width
         self.height = height
         self.piezo_settings = piezo_settings
-        self.pixel_dwell_time_us = pixel_dwell_time_us
-        self.ir_pulse_period_us = ir_pulse_period_us
         self.wavelengths_per_pixel = wavelengths_per_pixel
 
         super().__init__(
@@ -62,48 +56,22 @@ class PiezoExperimentSettings(ImagingExperimentSettings):
     def scan_freq_hz(self) -> float:
         return 1e6 / self.fast_motion_period_us
 
-    # TODO: Camryn: I had to guess here as to what your parameters should be.
-    # Make sure this seems like it will work for you.
-    # Also, I'm just curious, why does it control this way (with wave A and
-    # wave B)? Is that something that the piezo stage needs? Or just a way to
-    # make sure that the clock cycles are lined up correctly?
     def update_piezo_settings(self, logger: Logger) -> PiezoScanSettings:
         """
         This function modifies self in-place and returns the updated
         version of the [PiezoScanSettings] for passing to the hardware.
         """
-        p_settings = self.piezo_settings
-        clk = p_settings.clk
-        clk_period = 1 / clk  # in sec
-        fast_dwell = self.pixel_dwell_time_us * 1e6  # in seconds
-        clks_per_fast = fast_dwell / clk_period
 
-        if clks_per_fast % 2 != 0:
-            logger.warning(
-                f"Pixel dwell time ({fast_dwell}) is not an even multiple of clock period. This means that the desired pixel dwell time cannot be met. Number of clocks per dwell time: {clks_per_fast}"
-            )
-
-        clks_per_fast = round(clks_per_fast)
-
-        a_wave_period = clk_period * 2
-        a_wave_on = round(clks_per_fast / 2)
+        a_wave_on = self.wavelengths_per_pixel
         a_wave_off = 0
-        b_wave_period = a_wave_period * (a_wave_on + a_wave_off)
-        fast_wave_b_pulses = fast_dwell / b_wave_period
-
-        if fast_wave_b_pulses % 1 != 0:
-            logger.warning(
-                f"Number of wave b pulses per fast pulse is not an integer. It is: {fast_wave_b_pulses}"
-            )
-
-        fast_wave_b_pulses = round(fast_wave_b_pulses)
+        fast_wave_b_pulses = 1
 
         out_settings = PiezoScanSettings(
             a_wave_on=a_wave_on,
             a_wave_off=a_wave_off,
             fast_wave_b_pulses=fast_wave_b_pulses,
             fast_wave_ramp_steps=self.width,
-            fast_wave_scans_per_slow=1,  # TODO: Camryn, if you want more scans change it
+            fast_wave_scans_per_slow=1,
             slow_wave_ramp_steps=self.height,
             slow_wave_scans_per_trigger=self.num_frames,
             slow_wave_enable_mode=self.piezo_settings.slow_wave_enable_mode,
@@ -117,8 +85,6 @@ class PiezoExperimentSettings(ImagingExperimentSettings):
         return [
             instance.fast_motion_phase,
             instance.fast_motion_period_us,
-            instance.pixel_dwell_time_us,
-            instance.ir_pulse_period_us,
             instance.wavelengths_per_pixel,
             instance.piezo_settings,  # TODO: check if called recursively (hopefully)
             instance.width,
@@ -133,7 +99,7 @@ class PiezoExperimentSettings(ImagingExperimentSettings):
     @staticmethod
     def constructor_func(yaml_data: object) -> PiezoExperimentSettings:
         # return PiezoExperimentSettings(*yaml_data)  # type: ignore
-        return yaml_data  # TODO: This appears to not store stuff. I don't know why
+        return yaml_data  # type: ignore # TODO: This appears to not store stuff. I don't know why
 
 
 class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
@@ -161,6 +127,12 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
 
     """
 
+    _fast_motion_period_us: float = ConfigOption(
+        name="fast_motion_period_us", default=2500.0, missing="info"
+    ) #type: ignore
+    _fast_motion_phase: float = ConfigOption(
+        name="fast_motion_phase", default=0.0, missing="info"
+    ) #type: ignore
     _min_mod: float = ConfigOption(name="min_mod", default=1e-12, missing="info")  # type: ignore
 
     _settings: PiezoExperimentSettings = StatusVar(
@@ -176,6 +148,8 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
     sigSettingsUpdated = QtCore.Signal(object)  # is a PiezoScanSettings
     sigStartStage = QtCore.Signal()
     sigStopStage = QtCore.Signal()
+    # Track what we intend to start once the stage is armed
+    _pending_start_kind: str | None = None  # "normal" or "live"
 
     def __init__(self, *args, **kwargs):  # type: ignore
         super().__init__(*args, **kwargs)  # type: ignore
@@ -205,6 +179,9 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
             self._stage_armed
         )
 
+        self._settings.fast_motion_period_us = self._fast_motion_period_us
+        self._settings.fast_motion_phase = self._fast_motion_phase
+
         #### Super Stuff ####
         super().on_activate()
 
@@ -227,8 +204,14 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
     def _new_alazar_data(self, buf: npt.NDArray[np.int_]):
         super()._new_alazar_data(buf)
 
+    # Camryn commented out the 3 lines below and added the 4 right after them to try to get the piezo stage to stop after Alazar acquisition stops
+    # @QtCore.Slot()  # type: ignore
+    # def _acquisition_completed(self):
+    #    super()._acquisition_completed()
+
     @QtCore.Slot()  # type: ignore
     def _acquisition_completed(self):
+        self.sigStopStage.emit()  # type: ignore
         super()._acquisition_completed()
 
     # TODO: Camryn: you will need to adjust both "start_*" functions to
@@ -236,6 +219,34 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
     # each other. My guess is that you'll want to break it into two pieces, one
     # arming the stage and then the second starting Alazar (after the stage)
     # is primed and ready
+    # @QtCore.Slot()  # type: ignore
+    # def start_acquisition(self):
+    # num_b = (
+    #    self._settings.calc_records_per_acquisition()
+    #    if self._num_buffers == 0
+    #    else self._num_buffers
+    # )
+    # self._apply_configuration(
+    #      settings=self._settings,
+    #       mode=AcquisitionMode.NPT,  # TODO: Camryn, is this what you want?
+    #        num_buffers=num_b,
+    #     )
+    #      self.sigStartStage.emit()  # TODO: Camryn
+    #       super().start_acquisition()
+    #
+    # @QtCore.Slot(int)  # type: ignore
+    # def start_live_acquisition(self):
+    # live_settings = self._settings
+    # live_settings.num_frames = self._settings.num_frames
+    # live_settings.live_process_function = self._live_viewing_fn
+    # self._apply_configuration(
+    #    settings=live_settings,
+    #     mode=AcquisitionMode.NPT,
+    #     num_buffers=self._settings.num_frames,
+    # )
+    # self.sigStartStage.emit()  # TODO: Camryn
+    # super().start_live_acquisition()
+
     @QtCore.Slot()  # type: ignore
     def start_acquisition(self):
         num_b = (
@@ -245,11 +256,11 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
         )
         self._apply_configuration(
             settings=self._settings,
-            mode=AcquisitionMode.NPT,  # TODO: Camryn, is this what you want?
+            mode=AcquisitionMode.NPT,  # keep unless you know you need a different mode
             num_buffers=num_b,
         )
-        self.sigStartStage.emit()  # TODO: Camryn
-        super().start_acquisition()
+        self._pending_start_kind = "normal"
+        self.sigStartStage.emit()  # type: ignore  # Stage arms now; Alazar start happens in _stage_armed()
 
     @QtCore.Slot(int)  # type: ignore
     def start_live_acquisition(self):
@@ -261,11 +272,18 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
             mode=AcquisitionMode.NPT,
             num_buffers=self._settings.num_frames,
         )
-        self.sigStartStage.emit()  # TODO: Camryn
-        super().start_live_acquisition()
+        self._pending_start_kind = "live"
+        self.sigStartStage.emit()  # type: ignore   # Stage arms now; Alazar start happens in _stage_armed()
+
+    # @QtCore.Slot()  # type: ignore
+    # def stop_acquisition(self):
+    # super().stop_acquisition()
 
     @QtCore.Slot()  # type: ignore
     def stop_acquisition(self):
+        # Stop the piezo stage first
+        self.sigStopStage.emit()  # type: ignore
+        # Then stop the Alazar acquisition
         super().stop_acquisition()
 
     @QtCore.Slot(object)  # type: ignore
@@ -273,6 +291,8 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
         p_settings = self._settings.piezo_settings
         super().configure_acquisition(settings)  # This resets all the _settings
         self._settings.piezo_settings = p_settings
+        self._settings.fast_motion_period_us = self._fast_motion_period_us
+        self._settings.fast_motion_phase = self._fast_motion_phase
         self._settings.update_piezo_settings(logger=self.log)
 
         # Now we need to update the piezo stage settings and pass those updates
@@ -309,9 +329,11 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
     # given wavelength).
     def _calculate_samples_per_record(self) -> int:
         """Note that this is per-channel"""
-        samps: float = 0
-        samps = self._settings.pixel_dwell_time_us * self._settings.sample_rate
-        samps = samps / 1e6
+
+        # Each wavelength-pixel gets half the clk freq. of dwell time
+        print(f"clk: {self._settings.piezo_settings.clk}")
+        print(f"sample_rate: {self._settings.sample_rate}")
+        samps = (2 / self._settings.piezo_settings.clk) * self._settings.sample_rate
 
         if samps < 256:
             self.log.error(
@@ -320,20 +342,20 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
 
         if not samps % 1 < self._min_mod:
             self.log.error(
-                f"Samples per pixel-wavelength is ({samps % 1}) which is not within ({self._min_mod}) of an integer. Adjust width resolution or mirror period."
+                f"Samples per pixel-wavelength is ({samps}) which is not within ({self._min_mod}) of an integer. Adjust width resolution or mirror period."
             )
 
         if not samps % 32 == 0:
-            remainder = samps % 32
-            added = samps + remainder
-            subtracted = samps - remainder
-            guess = added
-            if not guess % 32 == 0:
-                guess = subtracted
+            # remainder = samps % 32
+            # added = samps + remainder
+            # subtracted = samps - remainder
+            # guess = added
+            # if not guess % 32 == 0:
+            #     guess = subtracted
 
-            guess = 1e6 * guess / self._settings.sample_rate
+            # guess = 1e6 * guess / self._settings.sample_rate
             self.log.error(
-                f"Number of samples per pixel-wavelength is not a multiple of 32, which is required by Alazar. Closest conforming duration is (in us): {guess}"
+                f"Number of samples per pixel-wavelength is not a multiple of 32, which is required by Alazar. Number of samples was {samps}"
             )
 
         return int(samps)
@@ -348,6 +370,19 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
         if self._buffer_index % self._settings.num_frames == 0:
             super()._update_display_data()
 
+    # @QtCore.Slot()  # type: ignore
+    # def _stage_armed(self):
+    # pass
+
     @QtCore.Slot()  # type: ignore
     def _stage_armed(self):
-        pass
+        kind = self._pending_start_kind
+        self._pending_start_kind = None
+
+        if kind == "normal":
+            super().start_acquisition()
+        elif kind == "live":
+            super().start_live_acquisition()
+        else:
+            # No pending start requested; nothing to do
+            return

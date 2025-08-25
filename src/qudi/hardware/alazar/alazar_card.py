@@ -45,7 +45,7 @@ class AlazarCard(AlazarInterface):
         module.Class: 'alazar.alazar_card.AlazarCard'
         options:
             systemId: 1 # only if there are multiple systems (not just multiple cards)
-            clock: 1 # 0 for internal PLL, 1 for external
+            clock: 1 # 0 for internal PLL, 1 for external, 2 for slow external
             sample_rate: 50_000_000 # Sample rate for acquisition, in Hz
             card_type: "c9440" # options are "c9440" or "c9350"
             trigger_level: 160 # 0-255, 0-127 = negative range 128-255 = positive range
@@ -248,10 +248,21 @@ class AlazarCard(AlazarInterface):
                     i += 1
 
     def _configure_board(self, board: CombinedBoard):
+        clk = -1
+        if self._clock == 0:
+            clk = ats.EXTERNAL_CLOCK_10MHz_REF
+
+        if self._clock == 1:
+            clk = ats.FAST_EXTERNAL_CLOCK
+
+        if self._clock == 2:
+            clk = ats.SLOW_EXTERNAL_CLOCK
+
+        if clk == -1:
+            raise ValueError("Clock not set correctly!")
+         
         board.internal.setCaptureClock(  # type: ignore
-            source=ats.EXTERNAL_CLOCK_10MHz_REF
-            if self._clock == 0
-            else ats.FAST_EXTERNAL_CLOCK,
+            source=clk,
             rate=self._sample_rate,
             edge=ats.CLOCK_EDGE_RISING,
             decimation=self._decimation,

@@ -16,7 +16,7 @@ byteorder: str = "little"
 
 
 class PiezoScanSettings:
-    clk: int  # in Hz, pulled from hardware config
+    clk: float  # in Hz, pulled from hardware config
     enable_polarity: int  # 0 for LOW 1 for HI, pulled from config
     wave_f_mode: int  # 0 for triangular, 1 for ramp, pulled from config
     a_wave_on: int
@@ -47,7 +47,7 @@ class PiezoScanSettings:
         self.slow_wave_ramp_steps = slow_wave_ramp_steps
         self.slow_wave_scans_per_trigger = slow_wave_scans_per_trigger
         self.slow_wave_enable_mode = slow_wave_enable_mode
-        self.clk = 40_000
+        self.clk = 200
         self.enable_polarity = 1
         self.wave_f_mode = 0
 
@@ -79,14 +79,15 @@ class PiezoScanSettings:
             + self._to_bytes(self.a_wave_off)
             + self._to_bytes(self.fast_wave_b_pulses)
             # TODO: Camryn: in document is labelled "WaveSreq". I don't know what that means
-            + self._to_bytes(0)
+            # + self._to_bytes(0)    this was the previous version. camryn made new line below (line 83)
+            + self._to_bytes(0 if self.slow_wave_enable_mode else self.slow_wave_scans_per_trigger)
             # TODO: Camryn: check -- "WaveFpixel" is how this is labelled in excel
             # but in the word doc it's ramp_steps (same for slow below)
             + self._to_bytes(self.fast_wave_ramp_steps)
             + self._to_bytes(conversion(fast_v_max))
             + self._to_bytes(conversion(fast_v_min))
             # TODO: Camryn: check -- "WaveSpixel"
-            + self._to_bytes(self.slow_wave_ramp_steps)
+            + self._to_bytes(self.slow_wave_ramp_steps)  #slow-axis pixel/step count
             + self._to_bytes(conversion(slow_v_max))
             + self._to_bytes(conversion(slow_v_min))
             + self._to_bytes(self.fast_wave_scans_per_slow)

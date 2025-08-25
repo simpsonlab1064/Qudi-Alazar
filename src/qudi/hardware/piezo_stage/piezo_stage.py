@@ -5,9 +5,9 @@ __all__ = ["PiezoStage"]
 from PySide2 import QtCore
 from qudi.core.configoption import ConfigOption  # type: ignore
 
-# TODO: Camryn: You need to install pySerial in your conda environment:
-# ~$ conda install pyserial
 import serial
+import time
+
 
 from qudi.interface.piezo_stage_interface import (
     PiezoStageInterface,
@@ -26,7 +26,7 @@ class PiezoStage(PiezoStageInterface):
     piezo_stage:
         module.Class: 'piezo_stage.piezo_stage.PiezoStage'
         options:
-            clock: 40_000 # in Hz, clock frequency into the piezo control box
+            clock: 208.3 # in Hz, clock frequency into the piezo control box
             enable_polarity: 1 # 0 for LO, 1 for HI
             wave_f_mode: 1 # 0 for ramp, 1 for triangle
             fast_v_max: 10 # in V
@@ -38,7 +38,7 @@ class PiezoStage(PiezoStageInterface):
     """
 
     # Declare static parameters that can/must be declared in the qudi configuration
-    _clock: int = ConfigOption(name="clock", default=40_000, missing="warn")  # type: ignore
+    _clock: float = ConfigOption(name="clock", default=200, missing="warn")  # type: ignore
 
     _enable_polarity: int = ConfigOption(
         name="enable_polarity", default=1, missing="warn"
@@ -69,7 +69,12 @@ class PiezoStage(PiezoStageInterface):
         self._serial = serial.Serial(
             self._com,
             self._baud,
+            timeout=10, # Just to prevent infinite hangs
         )
+
+        # Need to pause before connecting as opening serial port
+        # resets the arduino
+        time.sleep(2)
 
         resp = self._connect()
 
@@ -106,7 +111,7 @@ class PiezoStage(PiezoStageInterface):
                 slow_v_min=self._slow_v_min,
             )
 
-            chk = self._calc_checksum(packet)
+            chk = sum(packet)
 
             packet = packet + (chk).to_bytes(2, byteorder=byteorder)  # pyright: ignore[reportArgumentType]
 
@@ -143,7 +148,7 @@ class PiezoStage(PiezoStageInterface):
             self.log.warning(f"Response had an invalid checksum. Response was: {resp}")
             return False
 
-        resp_chksum = int.from_bytes(resp[6:], byteorder=byteorder)  # pyright: ignore[reportArgumentType]
+        resp_chksum = int.from_bytes(resp[4:6], byteorder=byteorder)  # pyright: ignore[reportArgumentType]
         if resp_chksum != 0:
             self.log.warning(
                 f"Response indicates that an error ocurrred, code was: {resp_chksum}"
@@ -153,10 +158,7 @@ class PiezoStage(PiezoStageInterface):
         return True
 
     def _calc_checksum(self, bys: bytes) -> int:
-        # TODO: Camryn: check with Mark that this is what he's doing.
-        # You can ask if it's the same as the galvo-galvo box -- if it is, this
-        # should be correct (ish, there were some issues with this last time)
-        return sum(bys[0:6])
+        return sum(bys[0:-2])
 
     def _valid_checksum(self, bys: bytes) -> bool:
         if len(bys) != 8:
