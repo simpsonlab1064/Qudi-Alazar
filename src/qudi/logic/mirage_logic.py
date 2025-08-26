@@ -180,6 +180,10 @@ class MirageLogic(BaseAlazarLogic[MirageExperimentSettings]):
     def save_data(self):
         super().save_data()
 
+    @QtCore.Slot()  # type: ignore
+    def _board_armed(self):
+        pass
+
     def _check_config(self):
         super()._check_config()
 

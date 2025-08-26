@@ -86,6 +86,7 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
     _settings: ExperimentSettings
     _board_data_index: int = 0
     _buffer_index: int = 0
+    _records_per_buffer: int = 0
     _data: ProcessedData = ProcessedData(data=[])
     _display_data: list[DisplayData] = []
     _live_fn: FunctionType | None
@@ -102,6 +103,9 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
         alazar.sigNewData.connect(self._new_alazar_data, QtCore.Qt.QueuedConnection)  # type: ignore
         alazar.sigAcquisitionCompleted.connect(  # type: ignore
             self._acquisition_completed, QtCore.Qt.QueuedConnection
+        )
+        alazar.sigBoardArmed.connect(  # type: ignore
+            self._board_armed, QtCore.Qt.QueuedConnection
         )
 
         #### OUTPUTS #####
@@ -175,11 +179,13 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
             start_idx = (
                 self._buffer_index
                 * self._calculate_samples_per_record()
+                * self._records_per_buffer
                 * self._boards[board_idx].count_enabled()
             )
             end_idx = (
                 start_idx
                 + self._calculate_samples_per_record()
+                * self._records_per_buffer
                 * self._boards[board_idx].count_enabled()
             )
 
@@ -266,6 +272,11 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
     ):
         self._settings = settings
 
+    @QtCore.Slot()  # type: ignore
+    @abstractmethod
+    def _board_armed(self):
+        pass
+
     @abstractmethod
     def _calculate_samples_per_record(self) -> int:
         pass
@@ -308,6 +319,7 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
         records_per_buffer: int = 1,
     ):
         self._num_buffers = num_buffers
+        self._records_per_buffer = records_per_buffer
         alazar: AlazarInterface = self._alazar()
 
         alazar.set_samples_per_record(self._calculate_samples_per_record())
@@ -368,6 +380,7 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
         return (
             self._calculate_samples_per_record()
             * self._num_buffers
+            * self._records_per_buffer
             * self._boards[board_idx].count_enabled()
         )
 

@@ -372,7 +372,7 @@ class AlazarCard(AlazarInterface):
 
         try:
             self._boards[0].internal.startCapture()
-
+            self.sigBoardArmed.emit() # type: ignore
             self.set_aux_out(True)
 
             i = 0
@@ -394,7 +394,7 @@ class AlazarCard(AlazarInterface):
         try:
             while self.module_state() == "locked":
                 self._boards[0].internal.startCapture()
-
+                self.sigBoardArmed.emit() # type: ignore
                 self.set_aux_out(True)
 
                 i = 0
@@ -402,6 +402,8 @@ class AlazarCard(AlazarInterface):
                 while i < self._num_buffers:
                     self._data_transfer_loop(i)
                     i += 1
+
+                self.set_aux_out(False)
 
         finally:
             for b in self._boards:

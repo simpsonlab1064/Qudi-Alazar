@@ -18,6 +18,7 @@ from qudi.interface.piezo_stage_interface import PiezoScanSettings, PiezoStageIn
 class PiezoExperimentSettings(ImagingExperimentSettings):
     wavelengths_per_pixel: int
     piezo_settings: PiezoScanSettings
+    records_per_buffer: int
 
     def __init__(
         self,
@@ -37,6 +38,7 @@ class PiezoExperimentSettings(ImagingExperimentSettings):
         self.height = height
         self.piezo_settings = piezo_settings
         self.wavelengths_per_pixel = wavelengths_per_pixel
+        self.records_per_buffer = min(width, height)
 
         super().__init__(
             width=width,
@@ -51,7 +53,13 @@ class PiezoExperimentSettings(ImagingExperimentSettings):
         )
 
     def calc_records_per_acquisition(self) -> int:
-        return self.wavelengths_per_pixel * self.height * self.width
+        # return self.wavelengths_per_pixel * self.height * self.width
+        return round(
+            self.height
+            * self.width
+            * self.wavelengths_per_pixel
+            / self.records_per_buffer
+        )  # will always be int by definition
 
     def scan_freq_hz(self) -> float:
         return 1e6 / self.fast_motion_period_us
@@ -127,12 +135,9 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
 
     """
 
-    _fast_motion_period_us: float = ConfigOption(
-        name="fast_motion_period_us", default=2500.0, missing="info"
-    ) #type: ignore
     _fast_motion_phase: float = ConfigOption(
         name="fast_motion_phase", default=0.0, missing="info"
-    ) #type: ignore
+    )  # type: ignore
     _min_mod: float = ConfigOption(name="min_mod", default=1e-12, missing="info")  # type: ignore
 
     _settings: PiezoExperimentSettings = StatusVar(
@@ -178,8 +183,6 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
         piezo.sigStageArmed.connect(  # type: ignore
             self._stage_armed
         )
-
-        self._settings.fast_motion_period_us = self._fast_motion_period_us
         self._settings.fast_motion_phase = self._fast_motion_phase
 
         #### Super Stuff ####
@@ -214,39 +217,6 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
         self.sigStopStage.emit()  # type: ignore
         super()._acquisition_completed()
 
-    # TODO: Camryn: you will need to adjust both "start_*" functions to
-    # work the way you want. Basically, I don't know how things are triggering
-    # each other. My guess is that you'll want to break it into two pieces, one
-    # arming the stage and then the second starting Alazar (after the stage)
-    # is primed and ready
-    # @QtCore.Slot()  # type: ignore
-    # def start_acquisition(self):
-    # num_b = (
-    #    self._settings.calc_records_per_acquisition()
-    #    if self._num_buffers == 0
-    #    else self._num_buffers
-    # )
-    # self._apply_configuration(
-    #      settings=self._settings,
-    #       mode=AcquisitionMode.NPT,  # TODO: Camryn, is this what you want?
-    #        num_buffers=num_b,
-    #     )
-    #      self.sigStartStage.emit()  # TODO: Camryn
-    #       super().start_acquisition()
-    #
-    # @QtCore.Slot(int)  # type: ignore
-    # def start_live_acquisition(self):
-    # live_settings = self._settings
-    # live_settings.num_frames = self._settings.num_frames
-    # live_settings.live_process_function = self._live_viewing_fn
-    # self._apply_configuration(
-    #    settings=live_settings,
-    #     mode=AcquisitionMode.NPT,
-    #     num_buffers=self._settings.num_frames,
-    # )
-    # self.sigStartStage.emit()  # TODO: Camryn
-    # super().start_live_acquisition()
-
     @QtCore.Slot()  # type: ignore
     def start_acquisition(self):
         num_b = (
@@ -256,11 +226,12 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
         )
         self._apply_configuration(
             settings=self._settings,
-            mode=AcquisitionMode.NPT,  # keep unless you know you need a different mode
+            mode=AcquisitionMode.TRIGGERED_STREAMING,  # TODO (maybe)
             num_buffers=num_b,
+            records_per_buffer=self._settings.records_per_buffer,
         )
         self._pending_start_kind = "normal"
-        self.sigStartStage.emit()  # type: ignore  # Stage arms now; Alazar start happens in _stage_armed()
+        super().start_acquisition()  # This arms the board, stage starts moving in _alazar_armed()
 
     @QtCore.Slot(int)  # type: ignore
     def start_live_acquisition(self):
@@ -271,13 +242,10 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
             settings=live_settings,
             mode=AcquisitionMode.NPT,
             num_buffers=self._settings.num_frames,
+            records_per_buffer=self._settings.records_per_buffer,
         )
         self._pending_start_kind = "live"
-        self.sigStartStage.emit()  # type: ignore   # Stage arms now; Alazar start happens in _stage_armed()
-
-    # @QtCore.Slot()  # type: ignore
-    # def stop_acquisition(self):
-    # super().stop_acquisition()
+        super().start_live_acquisition()  # This arms the board, stage starts moving in _alazar_armed()
 
     @QtCore.Slot()  # type: ignore
     def stop_acquisition(self):
@@ -291,8 +259,8 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
         p_settings = self._settings.piezo_settings
         super().configure_acquisition(settings)  # This resets all the _settings
         self._settings.piezo_settings = p_settings
-        self._settings.fast_motion_period_us = self._fast_motion_period_us
         self._settings.fast_motion_phase = self._fast_motion_phase
+        self._settings.records_per_buffer = min(self._settings.height, self._settings.width)
         self._settings.update_piezo_settings(logger=self.log)
 
         # Now we need to update the piezo stage settings and pass those updates
@@ -301,6 +269,10 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
     @QtCore.Slot()  # type: ignore
     def save_data(self):
         super().save_data()
+
+    @QtCore.Slot()  # type: ignore
+    def _board_armed(self):
+        self.sigStartStage.emit()  # type: ignore
 
     def _check_config(self):
         super()._check_config()
@@ -346,14 +318,6 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
             )
 
         if not samps % 32 == 0:
-            # remainder = samps % 32
-            # added = samps + remainder
-            # subtracted = samps - remainder
-            # guess = added
-            # if not guess % 32 == 0:
-            #     guess = subtracted
-
-            # guess = 1e6 * guess / self._settings.sample_rate
             self.log.error(
                 f"Number of samples per pixel-wavelength is not a multiple of 32, which is required by Alazar. Number of samples was {samps}"
             )
@@ -370,19 +334,7 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
         if self._buffer_index % self._settings.num_frames == 0:
             super()._update_display_data()
 
-    # @QtCore.Slot()  # type: ignore
-    # def _stage_armed(self):
-    # pass
 
     @QtCore.Slot()  # type: ignore
     def _stage_armed(self):
-        kind = self._pending_start_kind
-        self._pending_start_kind = None
-
-        if kind == "normal":
-            super().start_acquisition()
-        elif kind == "live":
-            super().start_live_acquisition()
-        else:
-            # No pending start requested; nothing to do
-            return
+        pass

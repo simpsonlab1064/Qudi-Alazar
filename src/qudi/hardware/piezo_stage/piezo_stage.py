@@ -69,7 +69,7 @@ class PiezoStage(PiezoStageInterface):
         self._serial = serial.Serial(
             self._com,
             self._baud,
-            timeout=10, # Just to prevent infinite hangs
+            timeout=2, # Just to prevent infinite hangs
         )
 
         # Need to pause before connecting as opening serial port

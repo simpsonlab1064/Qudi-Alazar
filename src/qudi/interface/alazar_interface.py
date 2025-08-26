@@ -146,6 +146,7 @@ class AlazarInterface(Base):
 
     sigNewData = QtCore.Signal(np.ndarray)
     sigAcquisitionCompleted = QtCore.Signal()
+    sigBoardArmed = QtCore.Signal()
 
     # StatusVars:
     _samples_per_record = StatusVar(name="samples_per_record", default=-1)
