@@ -29,7 +29,8 @@ class CombinedBoard:
         self.internal = internal
 
     def valid_conf(self) -> bool:
-        return self.info.count_enabled() > 0 and self.info.count_enabled() % 2 == 0
+        enabled = self.info.count_enabled()
+        return enabled > 0 and (enabled % 2 == 0 or enabled == 1)
 
 
 class AlazarCard(AlazarInterface):
