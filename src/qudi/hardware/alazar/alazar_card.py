@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+
 
 __all__ = ["AlazarCard"]
 
@@ -71,6 +71,30 @@ class AlazarCard(AlazarInterface):
         name="trigger_timeout", default=5, missing="info"
     )  # type: ignore
 
+    _slow_ext_rate_zero: bool = ConfigOption(
+        name="slow_ext_rate_zero", default=False, missing="info"
+    )  # type: ignore
+
+
+    _adma_external_startcapture: bool = ConfigOption(
+        name="adma_external_startcapture", default=True, missing="info"
+    )  # type: ignore
+
+    _dma_wait_timeout_ms: int = ConfigOption(
+        name="dma_wait_timeout_ms", default=5000, missing="info"
+    )  # type: ignore
+
+    _aux1_mode: str = ConfigOption(name="aux1_mode", default="serial", missing="info")  # type: ignore
+
+    _aux1_pulse_ms: int = ConfigOption(name="aux1_pulse_ms", default=0, missing="info")  # type: ignore
+
+    _ext_trigger_slope: str = ConfigOption(name="ext_trigger_slope", default="pos", missing="info")  # type: ignore
+
+    _ext_trigger_input: str = ConfigOption(name="ext_trigger_input", default="5v", missing="info")  # type: ignore
+
+
+
+
     # run in separate thread
     _threaded = True
 
@@ -80,6 +104,34 @@ class AlazarCard(AlazarInterface):
         self._thread_lock = RecursiveMutex()
 
         self._boards: list[CombinedBoard] = []
+
+    def _aux1_start_pulse(self):
+        """
+        Generate a visible TTL start edge on AUX1 for the galvo box TRIGGER INPUT.
+        Uses AUX_OUT_SERIAL_DATA for the pulse, then restores configured AUX1 mode.
+        """
+        pulse_ms = int(getattr(self, "_aux1_pulse_ms", 0))
+        if pulse_ms <= 0:
+            print("[CARD] AUX1 start pulse: disabled (aux1_pulse_ms<=0)")
+            return
+
+        mode = getattr(self, "_aux1_mode", "serial")
+        try:
+            # Force AUX1 to SERIAL mode and drive HIGH
+            self._boards[0].internal.configureAuxIO(mode=ats.AUX_OUT_SERIAL_DATA, parameter=1)  # type: ignore
+            print(f"[CARD] AUX1 start pulse: SERIAL HIGH for {pulse_ms} ms")
+            time.sleep(pulse_ms / 1000.0)
+        finally:
+            # Drive LOW before restore
+            self._boards[0].internal.configureAuxIO(mode=ats.AUX_OUT_SERIAL_DATA, parameter=0)  # type: ignore
+            # Restore requested run mode
+            if mode == "trigger":
+                self._boards[0].internal.configureAuxIO(mode=ats.AUX_OUT_TRIGGER, parameter=0)  # type: ignore
+                print("[CARD] AUX1 restored to TRIGGER mode")
+            else:
+                print("[CARD] AUX1 left in SERIAL mode (level=LOW)")
+
+
 
     def on_activate(self) -> None:
         letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -206,23 +258,48 @@ class AlazarCard(AlazarInterface):
             self.module_state.unlock()
 
     def set_aux_out(self, high: bool):
+        """
+        AUX1 behavior:
+        - When aux1_mode == "trigger": keep AUX1 in TRIGGER OUT mode for the whole run.
+        'high' is ignored. The one-time SERIAL pulse is handled by _aux1_start_pulse().
+        - When aux1_mode == "serial": drive a static level.
+        """
+        # mode = getattr(self, "_aux1_mode", "serial")
+
+        # if mode == "trigger":
+        #     # Ensure port is in trigger mode and do nothing else
+        #     self._boards[0].internal.configureAuxIO(  # type: ignore
+        #         mode=ats.AUX_OUT_TRIGGER,
+        #         parameter=0,
+        #     )
+        #     return
+
+        # Fallback static level in SERIAL mode
         self._boards[0].internal.configureAuxIO(  # type: ignore
             mode=ats.AUX_OUT_SERIAL_DATA,
             parameter=1 if high else 0,
         )
 
+
+    # notes for the chunk above:
+    # prevents accidental switch back to SERIAL low that would suppress the box start. AUX1 stays in trigger mode during acquisition; the only SERIAL activity is the deliberate pulse in _aux1_start_pulse
+
+
     @QtCore.Slot(object)  # type: ignore
     def set_acqusition_flag(self, flag: AcquisitionMode):
         with self._thread_lock:
             if self.module_state() == "idle":
-                self._adma_flags = (
-                    ats.ADMA_INTERLEAVE_SAMPLES + ats.ADMA_EXTERNAL_STARTCAPTURE
-                )
+                self._adma_flags = ats.ADMA_INTERLEAVE_SAMPLES
+                if self._adma_external_startcapture:
+                    self._adma_flags += ats.ADMA_EXTERNAL_STARTCAPTURE
                 if flag == AcquisitionMode.NPT:
                     self._adma_flags += ats.ADMA_NPT
-
                 if flag == AcquisitionMode.TRIGGERED_STREAMING:
                     self._adma_flags += ats.ADMA_TRIGGERED_STREAMING
+
+                print(f"[CARD] set_acqusition_flag: adma_external_startcapture={self._adma_external_startcapture}  mode={flag}  adma_flags={self._adma_flags}")
+
+
 
     @QtCore.Slot(object)  # type: ignore
     def configure_boards(self, boards: list[BoardInfo]):
@@ -251,53 +328,45 @@ class AlazarCard(AlazarInterface):
         clk = -1
         if self._clock == 0:
             clk = ats.EXTERNAL_CLOCK_10MHz_REF
-
         if self._clock == 1:
             clk = ats.FAST_EXTERNAL_CLOCK
-
         if self._clock == 2:
             clk = ats.SLOW_EXTERNAL_CLOCK
-
         if clk == -1:
             raise ValueError("Clock not set correctly!")
-         
+
+        print(f"[CARD] clk_sel={clk}  slow_ext={ats.SLOW_EXTERNAL_CLOCK}  sample_rate_cfg={self._sample_rate}")
+
+        use_zero_rate = (clk == ats.SLOW_EXTERNAL_CLOCK) and bool(self._slow_ext_rate_zero)
+        rate_arg = 0 if use_zero_rate else self._sample_rate
+        print(f"[CARD] setCaptureClock source={clk} rate_arg={rate_arg} edge=RISING decim={self._decimation}")
         board.internal.setCaptureClock(  # type: ignore
             source=clk,
-            rate=self._sample_rate,
+            rate=rate_arg,
             edge=ats.CLOCK_EDGE_RISING,
             decimation=self._decimation,
         )
 
+        # Configure enabled channels
         numChannels = len(board.info.channels)
-
         for i in range(numChannels):
             if board.info.channels[i].enabled:
                 chan = board.info.channels[i]
-                coupling = (
-                    ats.DC_COUPLING if chan.coupling == Coupling.DC else ats.AC_COUPLING
-                )
+                coupling = ats.DC_COUPLING if chan.coupling == Coupling.DC else ats.AC_COUPLING
 
                 r = -1
-
                 if chan.range == Range.PM_200_MV:
                     r = ats.INPUT_RANGE_PM_200_MV
                 elif chan.range == Range.PM_500_MV:
                     r = ats.INPUT_RANGE_PM_500_MV
-
                 elif chan.range == Range.PM_1_V:
                     r = ats.INPUT_RANGE_PM_1_V
-
                 elif chan.range == Range.PM_5_V:
                     r = ats.INPUT_RANGE_PM_5_V
-
                 if r < 0:
                     raise ValueError(f"Range is set to an unknown value: {chan.range}")
 
-                impedance = (
-                    ats.IMPEDANCE_50_OHM
-                    if chan.termination == Termination.OHM_50
-                    else ats.IMPEDANCE_1M_OHM
-                )
+                impedance = ats.IMPEDANCE_50_OHM if chan.termination == Termination.OHM_50 else ats.IMPEDANCE_1M_OHM
                 board.internal.inputControlEx(  # type: ignore
                     channel=ats.channels[i],
                     coupling=coupling,
@@ -305,43 +374,50 @@ class AlazarCard(AlazarInterface):
                     impedance=impedance,
                 )
 
+        print(f"[CARD] trigger_level={self._trigger_level}  trigger_timeout={self._trigger_timeout} s")
+        slope = ats.TRIGGER_SLOPE_POSITIVE if getattr(self, "_ext_trigger_slope", "pos") == "pos" else ats.TRIGGER_SLOPE_NEGATIVE
         board.internal.setTriggerOperation(  # type: ignore
             ats.TRIG_ENGINE_OP_J,
             ats.TRIG_ENGINE_J,
             ats.TRIG_EXTERNAL,
-            ats.TRIGGER_SLOPE_POSITIVE,
+            slope,
             self._trigger_level,
             ats.TRIG_ENGINE_K,
             ats.TRIG_DISABLE,
             ats.TRIGGER_SLOPE_POSITIVE,
             128,
         )
+        etr_arg = ats.ETR_5V if getattr(self, "_ext_trigger_input", "5v") == "5v" else ats.ETR_TTL
+        board.internal.setExternalTrigger(ats.DC_COUPLING, etr_arg)  # type: ignore
 
-        board.internal.setExternalTrigger(  # type: ignore
-            ats.DC_COUPLING,
-            ats.ETR_5V,
-        )
 
-        trigger_delay_samples = 0
-        board.internal.setTriggerDelay(trigger_delay_samples)  # type: ignore
+        board.internal.setTriggerDelay(0)  # type: ignore
+        board.internal.setTriggerTimeOut(int(self._trigger_timeout * self._sample_rate))  # type: ignore
 
-        trigger_timeout_samples = self._trigger_timeout * self._sample_rate
-        board.internal.setTriggerTimeOut(trigger_timeout_samples)  # type: ignore
 
     def _allocate_buffers(self, board: CombinedBoard, board_idx: int):
         channel_count = board.info.count_enabled()
         samples_per_buffer = self.samples_per_buffer
 
         channels = 0
-
         for i in range(len(board.info.channels)):
             if board.info.channels[i].enabled:
                 channels += ats.channels[i]
+
+            # Guard: if no channels are enabled, refuse to run (otherwise DMA returns zeros)
+        if channel_count <= 0 or channels == 0:
+            raise RuntimeError(
+                "No Alazar channels are enabled. Enable Channel A in the Alazar Channel Control GUI and click 'Apply to hardware'."
+            )
+
+        print(f"[CARD] channel_count={channel_count} channels_mask={channels}")
+
 
         # Compute the number of bytes per record and per buffer
         _, bitsPerSample = board.internal.getChannelInfo()
         bytesPerSample = (bitsPerSample.value + 7) // 8
         bytesPerBuffer = bytesPerSample * samples_per_buffer * channel_count
+        print(f"[CARD] bytesPerSample: {bytesPerSample}, samples_per_buffer: {samples_per_buffer}, bytesPerBuffer: {bytesPerBuffer}")
 
         self._sample_type = ctypes.c_uint8
         if bytesPerSample > 1:
@@ -356,6 +432,8 @@ class AlazarCard(AlazarInterface):
                 )
             )
 
+        print(f"[CARD] preAsyncRead samples_per_record={self._samples_per_record} records_per_buffer={self._records_per_buffer} records_per_acq={self._records_per_acquisition} adma_flags={self._adma_flags}")
+
         board.internal.beforeAsyncRead(  # type: ignore
             channels,
             0,
@@ -368,51 +446,72 @@ class AlazarCard(AlazarInterface):
         for buf in self._buffers[board_idx]:
             board.internal.postAsyncBuffer(buf.addr, buf.size_bytes)  # type: ignore
 
-    def _acquire_data(self):
-        start = time.time()
-
-        try:
-            self._boards[0].internal.startCapture()
-            self.sigBoardArmed.emit() # type: ignore
-            self.set_aux_out(True)
-
-            i = 0
-
-            while i < self._num_buffers and self.module_state() == "locked":
-                self._data_transfer_loop(i)
-                i += 1
-
-        finally:
-            for b in self._boards:
-                b.internal.abortAsyncRead()
-
-        self.set_aux_out(False)
-
-        transfer_time = time.time() - start
-        self.log.info(f"Data collection finished in: {transfer_time}")
 
     def _acquire_live_data(self):
         try:
             while self.module_state() == "locked":
                 self._boards[0].internal.startCapture()
-                self.sigBoardArmed.emit() # type: ignore
+                time.sleep(0.020)  # allow arming to complete so the first external edge is not missed
+                self.sigBoardArmed.emit()  # type: ignore[attr-defined]
+
+                # One-time AUX1 pulse to galvo TRIGGER INPUT, then hold TRIGGER mode
+                # self._aux1_start_pulse()
                 self.set_aux_out(True)
 
-                i = 0
+                print("[CARD] startCapture called, waiting for SCAN ACTIVE trigger")
 
+                i = 0
                 while i < self._num_buffers:
                     self._data_transfer_loop(i)
                     i += 1
 
                 self.set_aux_out(False)
-
         finally:
+            try:
+                self.set_aux_out(False)
+            except Exception:
+                pass
             for b in self._boards:
                 b.internal.abortAsyncRead()
 
+
+
+    def _acquire_data(self):
+        start = time.time()
+        print(f"[CARD] num_buffers={self._num_buffers} "
+            f"records_per_buffer={self._records_per_buffer} "
+            f"samples_per_record={self._samples_per_record}")
+
+        try:
+            self._boards[0].internal.startCapture()
+            time.sleep(0.020)  # allow arming to complete before issuing AUX1 start
+            self.sigBoardArmed.emit()  # type: ignore[attr-defined]
+
+            # One-time AUX1 start edge to the galvo box
+            # self._aux1_start_pulse()
+
+            # Keep AUX1 in TRIGGER mode for the run
+            self.set_aux_out(True)
+
+            i = 0
+            while i < self._num_buffers and self.module_state() == "locked":
+                self._data_transfer_loop(i)
+                i += 1
+        finally:
+            try:
+                self.set_aux_out(False)
+            except Exception:
+                pass
+            for b in self._boards:
+                b.internal.abortAsyncRead()
+
+        self.log.info(f"Data collection finished in: {time.time() - start}")
+
+
     def _data_transfer_loop(self, i: int):
         for b in range(len(self._boards)):
-            timeout_ms = 5000
+            #timeout_ms = 5000
+            timeout_ms = int(self._dma_wait_timeout_ms)
             buf = self._buffers[b][i]
 
             self._boards[b].internal.waitAsyncBufferComplete(buf.addr, timeout_ms)  # type: ignore

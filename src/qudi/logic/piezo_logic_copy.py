@@ -38,23 +38,7 @@ class PiezoExperimentSettings(ImagingExperimentSettings):
         self.height = height
         self.piezo_settings = piezo_settings
         self.wavelengths_per_pixel = wavelengths_per_pixel
-        self.records_per_buffer =  1 #min(width, height)
-        self.adc_midcode: float = 32768.0
-        self.invert_polarity: bool = False #false: pmt signal = negative
-        #self.line_head_trim: int = 0
-        #self.line_tail_trim: int = 0
-        self.line_head_trim = 32
-        self.line_tail_trim = 32
-
-        self.bidirectional = True            # informational only for the UI
-        self.transpose_image = False         # processing expects row = time, col = fast
-
-        self.frame_head_rows_skip: int = 8
-        self.reverse_retrace: bool = False
-
-
-        self.display_fixed_levels: tuple[float, float] | None = None # Optional fixed display range for the image viewer. None means keep auto scaling.
-
+        self.records_per_buffer = min(width, height)
 
         super().__init__(
             width=width,
@@ -68,20 +52,14 @@ class PiezoExperimentSettings(ImagingExperimentSettings):
             num_frames=num_frames,
         )
 
-    # def calc_records_per_acquisition(self) -> int:
-    #     # return self.wavelengths_per_pixel * self.height * self.width
-    #     return round(
-    #         self.height
-    #         * self.width
-    #         * self.wavelengths_per_pixel
-    #         / self.records_per_buffer
-    #     )  # will always be int by definition
-    
     def calc_records_per_acquisition(self) -> int:
-    # One buffer carries one line period (trace + retrace) -> one image row
-        return int(self.height) # TODO: this isn't right if you are scanning wavelengths as well
-
-
+        # return self.wavelengths_per_pixel * self.height * self.width
+        return round(
+            self.height
+            * self.width
+            * self.wavelengths_per_pixel
+            / self.records_per_buffer
+        )  # will always be int by definition
 
     def scan_freq_hz(self) -> float:
         return 1e6 / self.fast_motion_period_us
@@ -124,7 +102,6 @@ class PiezoExperimentSettings(ImagingExperimentSettings):
             instance.do_autosave,
             instance.live_process_function,
             instance.end_process_function,
-            
         ]
 
     @staticmethod
@@ -162,10 +139,6 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
         name="fast_motion_phase", default=0.0, missing="info"
     )  # type: ignore
     _min_mod: float = ConfigOption(name="min_mod", default=1e-12, missing="info")  # type: ignore
-    # Optional fixed image levels taken from the config. None means disabled.
-    _display_fixed_levels: tuple[float, float] | None = ConfigOption(
-        name="display_fixed_levels", default=None, missing="info"
-    )  # type: ignore
 
     _settings: PiezoExperimentSettings = StatusVar(
         name="piezo_settings",
@@ -194,7 +167,6 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
         self._settings.piezo_settings.clk = p_settings.clk
         self._settings.piezo_settings.wave_f_mode = p_settings.wave_f_mode
         self._settings.piezo_settings.enable_polarity = p_settings.enable_polarity
-        self._settings.piezo_settings.slow_wave_enable_mode = p_settings.slow_wave_enable_mode
 
         #### OUTPUTS ####
         self.sigSettingsUpdated.connect(  # type: ignore
@@ -207,16 +179,11 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
             piezo.end_scan, QtCore.Qt.QueuedConnection
         )
 
-
         #### INPUTS ####
         piezo.sigStageArmed.connect(  # type: ignore
             self._stage_armed
         )
         self._settings.fast_motion_phase = self._fast_motion_phase
-        
-        # Copy optional fixed levels from the logic config into the settings object
-        self._settings.display_fixed_levels = self._display_fixed_levels  # type: ignore[attr-defined]
-
 
         #### Super Stuff ####
         super().on_activate()
@@ -250,19 +217,33 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
         self.sigStopStage.emit()  # type: ignore
         super()._acquisition_completed()
 
+    #@QtCore.Slot()  # type: ignore
+    #def start_acquisition(self):
+    #    num_b = (
+    #        self._settings.calc_records_per_acquisition()
+    #        if self._num_buffers == 0
+    #        else self._num_buffers
+    #    )
+
+
+    #Camryn commented out the chunk right above and replaced below:
     @QtCore.Slot()  # type: ignore
     def start_acquisition(self):
-
+        # Normal imaging must not use a live-processing function
         self._settings.live_process_function = self._live_viewing_fn
         self._settings.end_process_function = None
 
+        # Force a fresh buffer plan for normal imaging
         self._num_buffers = 0
         num_b = self._settings.calc_records_per_acquisition()
 
-        print(f"[PLAN] normal width={self._settings.width} height={self._settings.height} "
-              f"records_per_buffer={self._settings.records_per_buffer} "
-              f"records_per_acq={self._settings.calc_records_per_acquisition()} "
+        print(f"[PLAN] normal w={self._settings.width} h={self._settings.height} "
+              f"rpb={self._settings.records_per_buffer} "
+              f"rpa={self._settings.calc_records_per_acquisition()} "
+              f"live_proc={self._settings.live_process_function} "
               f"num_buffers_planned={num_b}")
+        
+        # self._settings.records_per_buffer = 1
 
         self._apply_configuration(
             settings=self._settings,
@@ -272,33 +253,25 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
         )
         self._pending_start_kind = "normal"
         super().start_acquisition()  # This arms the board, stage starts moving in _alazar_armed()
-        
 
     @QtCore.Slot(int)  # type: ignore
     def start_live_acquisition(self):
+    # Use the live processing function
         live_settings = self._settings
         live_settings.num_frames = self._settings.num_frames
-        live_settings.live_process_function = "imaging_timebin_line"
-        live_settings.bidirectional = True        # trace+retrace on the same row
-        live_settings.transpose_image = False     # keep rows=slow, cols=fast
+        live_settings.live_process_function = self._live_viewing_fn
 
-        # post at least one frame’s worth of buffers
-    # post exactly one frame’s worth of buffers in live for bring-up
-        frame_buffers = int(live_settings.height)    # 1 buffer per row
-        buffers_for_live = frame_buffers
-
-
+    # Back to the working plan: one buffer per image row, and
+    # each buffer contains one record per pixel across the row.
         self._apply_configuration(
             settings=live_settings,
-            mode=AcquisitionMode.TRIGGERED_STREAMING,
-            num_buffers=buffers_for_live,
-            records_per_buffer=1,                # 1 record = 2*width samples (one line period)
-        )
+            mode=AcquisitionMode.NPT,
+            num_buffers=self._settings.height,          # H
+            records_per_buffer=self._settings.width,    # W
+    )
+
         self._pending_start_kind = "live"
-        super().start_live_acquisition()
-
-
-
+        super().start_live_acquisition()  # This arms the board, stage starts moving in _alazar_armed()
 
     @QtCore.Slot()  # type: ignore
     def stop_acquisition(self):
@@ -313,40 +286,11 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
         super().configure_acquisition(settings)  # This resets all the _settings
         self._settings.piezo_settings = p_settings
         self._settings.fast_motion_phase = self._fast_motion_phase
-        self._settings.records_per_buffer = 1 #min(self._settings.height, self._settings.width)
+        self._settings.records_per_buffer = min(self._settings.height, self._settings.width)
         self._settings.update_piezo_settings(logger=self.log)
-
-                # Guard against mismatch between controller fast steps and GUI width
-        fast_steps = int(getattr(self._settings.piezo_settings, "fast_wave_ramp_steps", self._settings.width))
-        if fast_steps != int(self._settings.width):
-            self.log.error(f"fast_wave_ramp_steps={fast_steps} differs from width={self._settings.width}. Fix the mismatch.")
-            raise ValueError("Width mismatch between GUI and controller.")
-
 
         # Now we need to update the piezo stage settings and pass those updates
         # to the hardware module:
-    
-    # Validate line timing: 1 pulse/pixel at 128 kHz with triangle fast wave
-    # requires samples_per_record = 2 * width (trace + retrace).
-        samps = self._calculate_samples_per_record()
-        w = int(self._settings.width)
-        if samps != w:
-            self.log.error(
-                f"Inconsistent line configuration: samples_per_record={samps} but width={w}. "
-                "Set GUI width so that width equals samples_per_record (e.g., width=512 → 512), "
-                "or update _calculate_samples_per_record() accordingly."
-            )
-            raise ValueError("Line timing mismatch: samples_per_record must equal width.")
-        
-
-        # Alazar constraint: samples_per_record must be a multiple of 32
-        # Since samples_per_record = 2*width, enforce width % 16 == 0
-        if (w % 32) != 0:
-            self.log.error(
-                f"Invalid width={w}. For 1 pulse/pixel, width must be a multiple of 32 so that width is a multiple of 32."
-            )
-            raise ValueError("Width must be a multiple of 32 (Alazar alignment).")
-
 
     @QtCore.Slot()  # type: ignore
     def save_data(self):
@@ -381,45 +325,31 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
     # equivalent to how many there are per buffer. For the mIRage, this is
     # one pixel-wavelength (e.g. samples to fill the IR laser dwell time at a
     # given wavelength).
-    # def _calculate_samples_per_record(self) -> int:
-    #     """Note that this is per-channel"""
-
-    #     # Each wavelength-pixel gets half the clk freq. of dwell time
-    #     print(f"clk: {self._settings.piezo_settings.clk}")
-    #     print(f"sample_rate: {self._settings.sample_rate}")
-    #     samps = (2 / self._settings.piezo_settings.clk) * self._settings.sample_rate
-
-    #     if samps < 256:
-    #         self.log.error(
-    #             f"Number of samples per pixel-wavelength is too small: {samps}. Increase pixel dwell time or resolution of image."
-    #         )
-
-    #     if not samps % 1 < self._min_mod:
-    #         self.log.error(
-    #             f"Samples per pixel-wavelength is ({samps}) which is not within ({self._min_mod}) of an integer. Adjust width resolution or mirror period."
-    #         )
-
-    #     if not samps % 32 == 0:
-    #         self.log.error(
-    #             f"Number of samples per pixel-wavelength is not a multiple of 32, which is required by Alazar. Number of samples was {samps}"
-    #         )
-    #     return int(samps) * self._settings.width
-
-    #camnryn commented out the above and replaced with the following chunk:
-    # def _calculate_samples_per_record(self) -> int:
-    #     # Two laser pulses per pixel
-    #     pulses_per_pixel = 2
-    #     # Acquire 511 pixels per line, reserve one pixel time for flyback
-    #     pixels_per_line_acquired = 511
-    #     samples_per_record = pulses_per_pixel * pixels_per_line_acquired  # 1022
-    #     return samples_per_record
-    
     def _calculate_samples_per_record(self) -> int:
-        # 1 pulse per pixel at 128 kHz.
-        # Trace = width pulses; retrace = width pulses.
-        # One line period = 2 * width samples; line rate remains 125 Hz when width = 512.
-        #w = int(self._settings.width)
-        return int(self._settings.width)
+        """Note that this is per-channel"""
+
+        # Each wavelength-pixel gets half the clk freq. of dwell time
+        print(f"clk: {self._settings.piezo_settings.clk}")
+        print(f"sample_rate: {self._settings.sample_rate}")
+        samps = (2 / self._settings.piezo_settings.clk) * self._settings.sample_rate
+
+        if samps < 256:
+            self.log.error(
+                f"Number of samples per pixel-wavelength is too small: {samps}. Increase pixel dwell time or resolution of image."
+           )
+
+        if not samps % 1 < self._min_mod:
+            self.log.error(
+                f"Samples per pixel-wavelength is ({samps}) which is not within ({self._min_mod}) of an integer. Adjust width resolution or mirror period."
+            )
+
+        if not samps % 32 == 0:
+            self.log.error(
+                f"Number of samples per pixel-wavelength is not a multiple of 32, which is required by Alazar. Number of samples was {samps}"
+            )
+
+        return int(samps)
+
 
     def _calculate_total_samples(self, board_idx: int) -> int:
         return super()._calculate_total_samples(board_idx)
@@ -427,16 +357,14 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
     def _initialize_data(self):
         super()._initialize_data()
 
-    def _update_display_data(self):
-        if self._buffer_index % self._settings.num_frames == 0:
-            super()._update_display_data()
+    # def _update_display_data(self):
+    #    if self._buffer_index % self._settings.num_frames == 0:
+    #        super()._update_display_data()
 
+    # Camryn commented out the block above and replaced with this below:
+    def _update_display_data(self):
+        super()._update_display_data()
 
     @QtCore.Slot()  # type: ignore
     def _stage_armed(self):
-        # Stage reports “armed”; Alazar is already armed and waiting on SCAN ACTIVE.
-        # This log confirms the intended order: (1) board armed → (2) stage armed → (3) SCAN ACTIVE → capture.
-        kind = self._pending_start_kind or "unknown"
-        self.log.info(f"Piezo stage armed; pending_start_kind={kind}. Waiting for SCAN ACTIVE to trigger capture.")
-        self._pending_start_kind = None
-
+        pass

@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 __all__ = ["BaseAlazarLogic"]
 
 from qudi.core.module import LogicBase  # type: ignore
@@ -95,6 +93,10 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
 
     def __init__(self, *args, **kwargs):  # type: ignore
         super().__init__(*args, **kwargs)  # type: ignore
+        # Ensure attributes exist before _apply_configuration accesses them
+        self._live_fn = None
+        self._end_fn = None
+
 
     @abstractmethod
     def on_activate(self) -> None:
@@ -351,6 +353,9 @@ class BaseAlazarLogic(LogicBase, Generic[ExperimentSettings]):
                 )
         else:
             self._live_fn = None
+
+        print(f"[APPLY] live_fn_loaded={self._live_fn is not None}")
+        print(f"[APPLY] live_fn={settings.live_process_function}")
 
         if (
             settings.end_process_function is not None
