@@ -7,7 +7,7 @@ from processing_functions.util.numpy_groupies.aggregate_numpy import aggregate  
 from qudi.logic.piezo_logic import PiezoExperimentSettings
 from qudi.interface.alazar_interface import BoardInfo
 from processing_functions.util.raster_time_to_pix_num import raster_time_to_pix_num  # type: ignore
-from processing_functions.util.voltage_average_image import voltage_average_image
+#from processing_functions.util.voltage_average_image import voltage_average_image
 from processing_functions.util.processing_defs import (
     ProcessedData,
     LiveProcessingInterface,
@@ -150,42 +150,54 @@ def _imaging_timebin_line(
     board_index: int,
     boards: list[BoardInfo],
 ) -> ProcessedData:
-    """
-    One buffer = one full fast-axis line period. The data comes in in a serpentine fashion
-    """
+    # External clock = 64 kHz
+    # fast_wave_ramp_steps = 1024  → expected samples per line = 2*1024 = 2048 (trace + retrace)
+    # Display width = 512 → bin trace to 512 columns → 2 pulses per pixel
+
     h = int(settings.height)
     w = int(settings.width)
-    # transpose = bool(getattr(settings, "transpose_image", False))
 
+    # number of enabled channels on the current board
     num_enabled = boards[board_index].count_enabled()
-    total_enabled: list[int] = []
-    for b in boards:
-        total_enabled.append(b.count_enabled())
+    total_enabled = [b.count_enabled() for b in boards]
 
-    # Initialize on first buffer / board and every time we've finished averaging
-    # TODO: This is incorrect if you're doing live imaging and averaging more than one frame
-    if (buffer_index == 0 or buffer_index // h == 1) and board_index == 0: # Might be zeroing more than it should
-        print('clearing data')
-        data_list: list[npt.NDArray[np.float64]] = []
-        for _ in range(np.sum(total_enabled)):
-            data_list.append(np.zeros((w, h)))
-        data = ProcessedData(data=data_list)
+    # initialize once on the very first buffer only
+    if buffer_index == 0 and board_index == 0:
+        data = ProcessedData(
+            data=[np.zeros((h, w), dtype=np.float64)
+                for _ in range(int(np.sum(total_enabled)))]
+        )
 
-    i = 0
+
     row_idx = buffer_index % h
+    i = 0
 
     for c in boards[board_index].channels:
         if c.enabled:
-            temp = buf[i::num_enabled]  # note that in numpy it is start:stop:step 
-            if buffer_index % 2 == 0:
-                temp = temp[::-1]
-            
-            idx = np.sum(total_enabled[:board_index], dtype=int) + i
-            data.data[idx][row_idx, :] = temp / settings.num_frames
+            # one channel’s interleaved line
+            line = np.asarray(buf[i::num_enabled], dtype=np.float64)
+
+            # Use TRACE only: first 2*w samples. For 2 pulses/pixel, 2*w = 1024 when w=512.
+            need = 2 * w
+            if line.size < need:
+                return data
+            trace = line[:need]
+
+            # Average adjacent pairs -> w pixels
+            row_line = trace.reshape(w, 2).mean(axis=1)
+
+            # Serpentine writeback: reverse every other row
+            if (buffer_index % 2) == 1:
+                row_line = row_line[::-1]
+
+            idx = int(np.sum(total_enabled[:board_index])) + i
+            data.data[idx][row_idx, :] = row_line
 
             i += 1
 
     return data
+
+
 
 
 imaging_timebin_line = LiveProcessingInterface[PiezoExperimentSettings].from_function(

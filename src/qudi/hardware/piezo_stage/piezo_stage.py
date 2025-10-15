@@ -121,6 +121,8 @@ class PiezoStage(PiezoStageInterface):
     def download_and_arm(self):
         if self.module_state() != "locked":
             self.module_state.lock()
+           
+
 
             if self._protocol == "ggv1":
                 # Build packet per GGSerialCOMM1.xlsx (Data Code 3 = ARM)
@@ -144,7 +146,7 @@ class PiezoStage(PiezoStageInterface):
                 enable_pol = u16(int(self._enable_polarity))  # 0=LOW, 1=HIGH
 
                 # Map our wave_f_mode (0=ramp, 1=triangle) to controller (0=TRI, 1=SINE).
-                fast_mode = u16(0 if int(self._wave_f_mode) == 1 else 1)
+                fast_mode = u16(0 if int(self._wave_f_mode) == 1 else 1) 
 
                 fast_steps = u16(int(getattr(self._settings, "fast_wave_ramp_steps", 512)))
                 center_mirrors = u16(0)  # 0=Normal
@@ -256,6 +258,8 @@ class PiezoStage(PiezoStageInterface):
             return False
 
         return True
+    
+
 
     def _calc_checksum(self, bys: bytes) -> int:
         return sum(bys[0:-2])
@@ -268,3 +272,5 @@ class PiezoStage(PiezoStageInterface):
             return False
         chk = int.from_bytes(bys[6:], byteorder=BYTEORDER)
         return chk == self._calc_checksum(bys)
+    
+    

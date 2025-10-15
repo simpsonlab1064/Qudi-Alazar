@@ -219,6 +219,10 @@ class AlazarCard(AlazarInterface):
             with self._thread_lock:
                 if self.module_state() == "idle":
                     self.module_state.lock()
+                    # Live = external start + triggered streaming
+                    self._adma_external_startcapture = True
+                    self.set_acqusition_flag(AcquisitionMode.TRIGGERED_STREAMING)
+
                     self._configure_and_allocate()
 
                     if self.module_state() == "locked":
@@ -232,19 +236,23 @@ class AlazarCard(AlazarInterface):
                 "Not all boards have allowed channels active (at least one channel and if more than one it must be a multiple of 2)"
             )
 
-    @QtCore.Slot()  # type: ignore
     def start_live_acquisition(self):
         if all([x.valid_conf() for x in self._boards]):
             with self._thread_lock:
                 if self.module_state() == "idle":
                     self.module_state.lock()
-                    self._configure_and_allocate()
 
+                    # Live = triggered streaming, external start ON
+                    self._adma_external_startcapture = True          # ← add
+                    self.set_acqusition_flag(AcquisitionMode.TRIGGERED_STREAMING)  # ← add
+
+                    self._configure_and_allocate()
                     if self.module_state() == "locked":
                         self._acquire_live_data()
                         self.sigAcquisitionCompleted.emit()  # type: ignore
-
                         self.module_state.unlock()
+
+
 
         else:
             self.log.warning(
@@ -289,15 +297,20 @@ class AlazarCard(AlazarInterface):
     def set_acqusition_flag(self, flag: AcquisitionMode):
         with self._thread_lock:
             if self.module_state() == "idle":
+                # External-start is never used in non-triggered streaming
+                eff_ext_start = self._adma_external_startcapture
+                if flag == AcquisitionMode.NPT or getattr(AcquisitionMode, "NON_TRIGGERED_STREAMING", None) == flag:
+                    eff_ext_start = False
+
                 self._adma_flags = ats.ADMA_INTERLEAVE_SAMPLES
-                if self._adma_external_startcapture:
+                if eff_ext_start:
                     self._adma_flags += ats.ADMA_EXTERNAL_STARTCAPTURE
                 if flag == AcquisitionMode.NPT:
                     self._adma_flags += ats.ADMA_NPT
                 if flag == AcquisitionMode.TRIGGERED_STREAMING:
                     self._adma_flags += ats.ADMA_TRIGGERED_STREAMING
 
-                print(f"[CARD] set_acqusition_flag: adma_external_startcapture={self._adma_external_startcapture}  mode={flag}  adma_flags={self._adma_flags}")
+                print(f"[CARD] set_acqusition_flag: adma_external_startcapture={eff_ext_start}  mode={flag}  adma_flags={self._adma_flags}")
 
 
 
@@ -449,23 +462,20 @@ class AlazarCard(AlazarInterface):
 
     def _acquire_live_data(self):
         try:
+            # Arm once for entire live session
+            self._boards[0].internal.startCapture()
+            time.sleep(0.020)              # let the arm complete (don’t miss first edge)
+            self.sigBoardArmed.emit()   #type:ignore   # tells the stage to assert SCAN ACTIVE
+            self.set_aux_out(True)         # keep AUX1 high/trigger mode if you use it
+
+            print("[CARD] startCapture called, waiting for SCAN ACTIVE trigger")
+
+            i = 0
             while self.module_state() == "locked":
-                self._boards[0].internal.startCapture()
-                time.sleep(0.020)  # allow arming to complete so the first external edge is not missed
-                self.sigBoardArmed.emit()  # type: ignore[attr-defined]
-
-                # One-time AUX1 pulse to galvo TRIGGER INPUT, then hold TRIGGER mode
-                # self._aux1_start_pulse()
-                self.set_aux_out(True)
-
-                print("[CARD] startCapture called, waiting for SCAN ACTIVE trigger")
-
-                i = 0
-                while i < self._num_buffers:
-                    self._data_transfer_loop(i)
-                    i += 1
-
-                self.set_aux_out(False)
+                self._data_transfer_loop(i)
+                i += 1
+                if i >= self._num_buffers:
+                    i = 0                  # ring buffer
         finally:
             try:
                 self.set_aux_out(False)
@@ -473,6 +483,8 @@ class AlazarCard(AlazarInterface):
                 pass
             for b in self._boards:
                 b.internal.abortAsyncRead()
+
+
 
 
 

@@ -81,6 +81,12 @@ class PiezoExperimentSettings(ImagingExperimentSettings):
     # One buffer carries one line period (trace + retrace) -> one image row
         return int(self.height) # TODO: this isn't right if you are scanning wavelengths as well
 
+    # def calc_records_per_acquisition(self) -> int:
+    #     """
+    #     Total records equals rows per frame times number of frames.
+    #     Live mode sets num_frames to a large value to keep streaming.
+    #     """
+    #     return int(self.height) * int(max(1, self.num_frames))
 
 
     def scan_freq_hz(self) -> float:
@@ -100,7 +106,7 @@ class PiezoExperimentSettings(ImagingExperimentSettings):
             a_wave_on=a_wave_on,
             a_wave_off=a_wave_off,
             fast_wave_b_pulses=fast_wave_b_pulses,
-            fast_wave_ramp_steps=self.width,
+            fast_wave_ramp_steps=1024,  # 64 kHz ext clock -> 31.25 Hz fast triangle, 2 pulses/pixel at width=512
             fast_wave_scans_per_slow=1,
             slow_wave_ramp_steps=self.height,
             slow_wave_scans_per_trigger=self.num_frames,
@@ -247,8 +253,11 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
 
     @QtCore.Slot()  # type: ignore
     def _acquisition_completed(self):
-        self.sigStopStage.emit()  # type: ignore
+        # Do not stop the stage during live; only stop for normal (non-live) runs.
+        if not self._running_live:
+            self.sigStopStage.emit()  # type: ignore
         super()._acquisition_completed()
+
 
     @QtCore.Slot()  # type: ignore
     def start_acquisition(self):
@@ -279,23 +288,37 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
         live_settings = self._settings
         live_settings.num_frames = self._settings.num_frames
         live_settings.live_process_function = "imaging_timebin_line"
-        live_settings.bidirectional = True        # trace+retrace on the same row
-        live_settings.transpose_image = False     # keep rows=slow, cols=fast
+        live_settings.bidirectional = True           # trace+retrace on same row
+        live_settings.transpose_image = False        # rows=slow, cols=fast
+        # keep scanning frames continuously in live
+        live_settings.piezo_settings.slow_wave_scans_per_trigger = 32767
 
-        # post at least one frame’s worth of buffers
-    # post exactly one frame’s worth of buffers in live for bring-up
-        frame_buffers = int(live_settings.height)    # 1 buffer per row
+        # Force triggered streaming in live so the ATS starts on SCAN ACTIVE rising edge
+        live_mode = AcquisitionMode.TRIGGERED_STREAMING
+
+
+        # ---------- DMA buffer plan: one buffer per fast line ----------
+        frame_buffers = int(live_settings.height)     # 1 buffer per row
         buffers_for_live = frame_buffers
 
-
+        # Apply HW configuration (turns OFF ext start-capture for NPT internally)
         self._apply_configuration(
             settings=live_settings,
-            mode=AcquisitionMode.TRIGGERED_STREAMING,
+            mode=live_mode,
             num_buffers=buffers_for_live,
-            records_per_buffer=1,                # 1 record = 2*width samples (one line period)
+            records_per_buffer=1,                     # 1 line period per buffer
         )
+
+        # Keep ATS streaming indefinitely in live (don’t stop after one frame)
+        # Huge number of “records per acquisition” so DMA never completes.
+        self._alazar().set_records_per_acquisition(10_000_000)  # type: ignore
+
         self._pending_start_kind = "live"
         super().start_live_acquisition()
+
+
+
+
 
 
 
@@ -306,6 +329,9 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
         self.sigStopStage.emit()  # type: ignore
         # Then stop the Alazar acquisition
         super().stop_acquisition()
+
+
+
 
     @QtCore.Slot(object)  # type: ignore
     def configure_acquisition(self, settings: PiezoExperimentSettings):
@@ -319,33 +345,33 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
                 # Guard against mismatch between controller fast steps and GUI width
         fast_steps = int(getattr(self._settings.piezo_settings, "fast_wave_ramp_steps", self._settings.width))
         if fast_steps != int(self._settings.width):
-            self.log.error(f"fast_wave_ramp_steps={fast_steps} differs from width={self._settings.width}. Fix the mismatch.")
-            raise ValueError("Width mismatch between GUI and controller.")
+            self.log.warning(
+                f"Using fast_wave_ramp_steps={fast_steps} with GUI width={self._settings.width}. "
+                "Controller timing will follow external clock semantics."
+            )
 
 
         # Now we need to update the piezo stage settings and pass those updates
         # to the hardware module:
     
-    # Validate line timing: 1 pulse/pixel at 128 kHz with triangle fast wave
-    # requires samples_per_record = 2 * width (trace + retrace).
+        # Validate line timing for “one record = one full fast line (trace + retrace)”.
         samps = self._calculate_samples_per_record()
-        w = int(self._settings.width)
-        if samps != w:
+        fast_steps = int(getattr(self._settings.piezo_settings, "fast_wave_ramp_steps", self._settings.width))
+        expected = 2 * fast_steps
+        if samps != expected:
             self.log.error(
-                f"Inconsistent line configuration: samples_per_record={samps} but width={w}. "
-                "Set GUI width so that width equals samples_per_record (e.g., width=512 → 512), "
-                "or update _calculate_samples_per_record() accordingly."
+                f"Inconsistent line configuration: samples_per_record={samps} but expected {expected} "
+                f"(= 2 * fast_steps with fast_steps={fast_steps}). Update _calculate_samples_per_record() or fast_steps."
             )
-            raise ValueError("Line timing mismatch: samples_per_record must equal width.")
-        
+            raise ValueError("Line timing mismatch: samples_per_record must equal 2 * fast_steps for trace + retrace.")
 
         # Alazar constraint: samples_per_record must be a multiple of 32
-        # Since samples_per_record = 2*width, enforce width % 16 == 0
-        if (w % 32) != 0:
+        if (samps % 32) != 0:
             self.log.error(
-                f"Invalid width={w}. For 1 pulse/pixel, width must be a multiple of 32 so that width is a multiple of 32."
+                f"samples_per_record={samps} is not a multiple of 32 (Alazar requirement)."
             )
-            raise ValueError("Width must be a multiple of 32 (Alazar alignment).")
+            raise ValueError("samples_per_record must be a multiple of 32.")
+
 
 
     @QtCore.Slot()  # type: ignore
@@ -415,11 +441,9 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
     #     return samples_per_record
     
     def _calculate_samples_per_record(self) -> int:
-        # 1 pulse per pixel at 128 kHz.
-        # Trace = width pulses; retrace = width pulses.
-        # One line period = 2 * width samples; line rate remains 125 Hz when width = 512.
-        #w = int(self._settings.width)
-        return int(self._settings.width)
+        steps = int(getattr(self._settings.piezo_settings, "fast_wave_ramp_steps", self._settings.width))
+        return int(2 * steps)  # 2048 samples per line
+
 
     def _calculate_total_samples(self, board_idx: int) -> int:
         return super()._calculate_total_samples(board_idx)
