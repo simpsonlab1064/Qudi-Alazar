@@ -201,7 +201,7 @@ class PiezoStage(PiezoStageInterface):
                 )
 
 
-            self.log.info("PiezoStage[GGV1]: ignoring YAML 'clock'; timing derives from external 128 kHz via EXT CLOCK INPUT.")
+            self.log.info("PiezoStage[GGV1]: ignoring YAML 'clock'; timing derives from external ECLK via EXT CLOCK INPUT.")
 
             self._send_command(packet)
             self._receive_data()

@@ -40,11 +40,11 @@ class PiezoExperimentSettings(ImagingExperimentSettings):
         self.wavelengths_per_pixel = wavelengths_per_pixel
         self.records_per_buffer =  1 #min(width, height)
         self.adc_midcode: float = 32768.0
-        self.invert_polarity: bool = False #false: pmt signal = negative
+        self.invert_polarity: bool = True #false: pmt signal = negative
         #self.line_head_trim: int = 0
         #self.line_tail_trim: int = 0
-        self.line_head_trim = 32
-        self.line_tail_trim = 32
+        self.line_head_trim = 0
+        self.line_tail_trim = 0
 
         self.bidirectional = True            # informational only for the UI
         self.transpose_image = False         # processing expects row = time, col = fast
@@ -78,8 +78,14 @@ class PiezoExperimentSettings(ImagingExperimentSettings):
     #     )  # will always be int by definition
     
     def calc_records_per_acquisition(self) -> int:
-    # One buffer carries one line period (trace + retrace) -> one image row
-        return int(self.height) # TODO: this isn't right if you are scanning wavelengths as well
+        """
+        One DMA record writes one image row in the current reconstruction.
+        records_per_acquisition must equal height.
+        """
+        return int(self.height)
+
+
+
 
     # def calc_records_per_acquisition(self) -> int:
     #     """
@@ -106,8 +112,8 @@ class PiezoExperimentSettings(ImagingExperimentSettings):
             a_wave_on=a_wave_on,
             a_wave_off=a_wave_off,
             fast_wave_b_pulses=fast_wave_b_pulses,
-            fast_wave_ramp_steps=1024,  # 64 kHz ext clock -> 31.25 Hz fast triangle, 2 pulses/pixel at width=512
-            fast_wave_scans_per_slow=1,
+            fast_wave_ramp_steps=1024,  # 64 kHz ext clock → 31.25 Hz triangle for full period (trace+retrace), 2 pulses/pixel at width=512
+            fast_wave_scans_per_slow=2,
             slow_wave_ramp_steps=self.height,
             slow_wave_scans_per_trigger=self.num_frames,
             slow_wave_enable_mode=self.piezo_settings.slow_wave_enable_mode,
@@ -288,8 +294,8 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
         live_settings = self._settings
         live_settings.num_frames = self._settings.num_frames
         live_settings.live_process_function = "imaging_timebin_line"
-        live_settings.bidirectional = True           # trace+retrace on same row
-        live_settings.transpose_image = False        # rows=slow, cols=fast
+        live_settings.bidirectional = False           # trace+retrace on same row
+        live_settings.transpose_image = True        # rows=slow, cols=fast
         # keep scanning frames continuously in live
         live_settings.piezo_settings.slow_wave_scans_per_trigger = 32767
 
@@ -361,9 +367,10 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
         if samps != expected:
             self.log.error(
                 f"Inconsistent line configuration: samples_per_record={samps} but expected {expected} "
-                f"(= 2 * fast_steps with fast_steps={fast_steps}). Update _calculate_samples_per_record() or fast_steps."
+                f"(= 2 * fast_steps with both controller and digitizer at 64 kHz; fast_steps={fast_steps})."
             )
-            raise ValueError("Line timing mismatch: samples_per_record must equal 2 * fast_steps for trace + retrace.")
+            raise ValueError("Line timing mismatch: samples_per_record must equal 2 * fast_steps for one full fast period.")
+
 
         # Alazar constraint: samples_per_record must be a multiple of 32
         if (samps % 32) != 0:
@@ -441,8 +448,13 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
     #     return samples_per_record
     
     def _calculate_samples_per_record(self) -> int:
+        """
+        One record equals one full fast period: trace + retrace.
+        Fast axis steps at 64 kHz; digitizer now samples at 64 kHz.
+        Therefore: samples_per_record = 2 * fast_steps = 2048 for fast_steps=1024.
+        """
         steps = int(getattr(self._settings.piezo_settings, "fast_wave_ramp_steps", self._settings.width))
-        return int(2 * steps)  # 2048 samples per line
+        return int(2 * steps)  # 2048 samples per full period at 64 kHz
 
 
     def _calculate_total_samples(self, board_idx: int) -> int:

@@ -1,0 +1,339 @@
+__all__ = ["imaging_timebin_line"]
+
+import numpy as np
+import numpy.typing as npt
+
+from processing_functions.util.numpy_groupies.aggregate_numpy import aggregate  # type: ignore
+from qudi.logic.piezo_logic import PiezoExperimentSettings
+from qudi.interface.alazar_interface import BoardInfo
+from processing_functions.util.raster_time_to_pix_num import raster_time_to_pix_num  # type: ignore
+#from processing_functions.util.voltage_average_image import voltage_average_image
+from processing_functions.util.processing_defs import (
+    ProcessedData,
+    LiveProcessingInterface,
+)
+
+
+def time_to_cols(
+    num_samples: int,
+    sample_rate_hz: float,
+    width_px: int,
+    fast_period_us: float,
+    fast_phase: float,
+) -> npt.NDArray[np.int_]:
+    """
+    Linear trace-only mapper: map the first width_px samples to columns 0..width_px-1.
+    Ignores timing parameters intentionally for this diagnostic step.
+    """
+    n = int(min(num_samples, width_px))
+    return np.arange(n, dtype=np.int_)
+
+
+# def _imaging_timebin_line(
+#     data: ProcessedData,
+#     buf: npt.NDArray[np.int_],
+#     settings: ImagingExperimentSettings,
+#     buffer_index: int,
+#     board_index: int,
+#     boards: list[BoardInfo],
+# ) -> ProcessedData:
+#     """
+#     One buffer = one full fast-axis line period: TRACE (L→R) + RETRACE (R→L).
+#     We map the first half to columns 0..w-1 and the second half to columns w-1..0,
+#     and write BOTH into the SAME image row.
+#     """
+#     h = int(settings.height)
+#     w = int(settings.width)
+#     #transpose = bool(getattr(settings, "transpose_image", False))
+
+#     # only one Alazar channel enabled in this test
+#     enabled = [c.enabled for c in boards[board_index].channels]
+#     nchan = int(sum(1 for e in enabled if e))
+#     if nchan <= 0:
+#         raise ValueError("No enabled channels")
+
+#     if nchan != 1:
+#         ch = np.asarray(buf[0::nchan][: (buf.size // nchan)], dtype=np.float64)
+#     else:
+#         ch = np.asarray(buf, dtype=np.float64)
+
+
+#         # Center around ADC midcode; keep your PMT negative sign (no inversion)
+#     invert = bool(getattr(settings, "invert_polarity", False))
+#     ch = (-ch) if invert else ch
+
+#     # STEP 2: trim flyback and settle regions on each line
+#     head = int(getattr(settings, "line_head_trim", 0))
+#     tail = int(getattr(settings, "line_tail_trim", 0))
+#     if head or tail:
+#         if ch.size > (head + tail):
+#             ch = ch[head: ch.size - tail]
+
+
+#         # --- force one line period to be exactly 2*width samples ---
+#         # --- force one line period to be exactly 2*width samples ---
+#     expected = 2 * w
+#     if ch.size != expected:
+#         if ch.size > expected:
+#             # symmetric center crop to preserve trace/retrace alignment
+#             start = (ch.size - expected) // 2
+#             ch = ch[start:start + expected]
+#         else:
+#             # symmetric edge padding to preserve alignment
+#             deficit = expected - ch.size
+#             left = deficit // 2
+#             right = deficit - left
+#             ch = np.pad(ch, (left, right), mode="edge")
+#         if buffer_index < 6 and board_index == 0:
+#             print(f"[FIX] ch len -> {ch.size} (expected {expected}), symmetric crop/pad applied")
+
+
+#     # polarity: make brighter = positive (PMT-style)
+# # polarity / offset: Alazar delivers signed int16 -> already centered at 0
+#     mid = float(getattr(settings, "adc_midcode", 0.0))
+#     invert = bool(getattr(settings, "invert_polarity", False))
+#     ch = (-(ch - mid)) if invert else (ch - mid)
+
+
+#     # First-time init of the image
+#     if buffer_index == 0 and board_index == 0:
+#         # NOTE: image is (h, w) internally; UI can transpose if desired
+#         data = ProcessedData(data=[np.zeros((h, w), dtype=np.float64)])
+
+#     ch_use = ch  # no trimming for now; must be exactly 2*width
+
+#     if ch_use.size < 2:
+#         return data
+
+#     # Use TRACE only to avoid left/right duplication
+#     half = int(ch_use.size // 2)
+#     trace = ch_use[:half]
+
+#     def _bin_to_w(x: npt.NDArray[np.float64], w: int) -> npt.NDArray[np.float64]:
+#         if x.size == 0:
+#             return np.zeros(w, dtype=np.float64)
+#         if x.size == 1:
+#             return np.full(w, float(x[0]), dtype=np.float64)
+#         src = np.arange(x.size, dtype=np.float64)
+#         tgt = np.linspace(0.0, float(x.size - 1), w, dtype=np.float64)
+#         return np.interp(tgt, src, x).astype(np.float64, copy=False)
+
+#     row_line = _bin_to_w(trace, w)
+
+#     # Optional: drop the first few rows to avoid top-of-frame corruption
+#     rows_to_skip = int(getattr(settings, "frame_head_rows_skip", 0))
+#     row_idx = int(buffer_index % h)
+#     if row_idx < rows_to_skip:
+#         # Fill with the median of the line to keep display stable
+#         fill = float(np.median(row_line)) if row_line.size else 0.0
+#         row_line = np.full(w, fill, dtype=np.float64)
+
+#     img = data.data[0]
+#     if not getattr(settings, "transpose_image", False):
+#         img[row_idx, :] = row_line
+#     else:
+#         img[:, row_idx] = row_line
+
+#     if buffer_index < 8 and board_index == 0:
+#         lo, hi = np.percentile(row_line, [0.5, 99.5])
+#         print(f"[ROW] buf={buffer_index} row={row_idx} trace_len={trace.size} ch_len={ch_use.size} p0.5={lo:.1f} p99.5={hi:.1f}")
+
+
+#     return data
+
+
+def _imaging_timebin_line(
+    data: ProcessedData,
+    buf: npt.NDArray[np.int_],
+    settings: PiezoExperimentSettings,
+    buffer_index: int,
+    board_index: int,
+    boards: list[BoardInfo],
+) -> ProcessedData:
+    h = int(settings.height)
+    w = int(settings.width)
+
+    num_enabled = boards[board_index].count_enabled()
+    total_enabled = [b.count_enabled() for b in boards]
+
+    # first-call initialization
+    if buffer_index == 0 and board_index == 0:
+        data = ProcessedData(
+            data=[np.zeros((h, w), dtype=np.float64)
+                  for _ in range(int(np.sum(total_enabled)))]
+        )
+
+    row_idx = buffer_index % h  # one buffer → one row
+
+    i = 0
+    for c in boards[board_index].channels:
+        if not c.enabled:
+            continue
+
+        # ------------------- raw data -------------------
+        line = np.asarray(buf[i::num_enabled], dtype=np.float64)
+
+        mid = float(getattr(settings, "adc_midcode", 32768.0))
+        inv = bool(getattr(settings, "invert_polarity", False))
+        line_centered = line - mid
+        if inv:
+            line_centered = -line_centered
+        line = line_centered
+
+        if line.size < 128:
+            return data
+
+        # ------------------- derive turnaround (fast local) -------------------
+        N = line.size
+        if N < 512:
+            return data
+
+        # 1) coarse estimate from derivative minimum (O(N))
+        win = min(32, max(4, N // 128))
+        kernel = np.ones(win) / win
+        smoothed = np.convolve(line, kernel, mode="same")
+        deriv = np.gradient(smoothed)
+        abs_deriv = np.abs(deriv)
+        s0 = int(0.1 * N)
+        s1 = int(0.9 * N)
+        coarse_idx = s0 + int(np.argmin(abs_deriv[s0:s1]))
+
+        # 2) optional user phase tweak
+        phase_offset = int(getattr(settings, "turn_idx_offset", 0))
+        coarse_idx = int(np.clip(coarse_idx + phase_offset, 64, N - 64))
+
+        # 3) lock turnaround index for the whole frame
+        global _turn_idx_locked
+        try:
+            _turn_idx_locked
+        except NameError:
+            _turn_idx_locked = coarse_idx
+        if row_idx == 0:
+            _turn_idx_locked = coarse_idx
+        turn_idx = _turn_idx_locked
+
+
+        # 4) split at detected turnaround
+        first_half  = line[:turn_idx]         # TRACE (L→R)
+        second_half = line[turn_idx:]         # RETRACE (R→L)
+
+        # 5) fine align by tiny integer shift around zero (±32) using normalized correlation.
+        #    This is O(K * shift) with small K, so it is fast.
+        rev_retrace = second_half[::-1]
+        k = min(first_half.size, rev_retrace.size, 1024)
+        a = first_half[:k]
+        b = rev_retrace[:k]
+
+        sa = float(a.std()) or 1.0
+        sb = float(b.std()) or 1.0
+        a_n = (a - float(a.mean())) / sa
+        b_n = (b - float(b.mean())) / sb
+
+        best_shift = 0
+        best_sc = -1.0
+        max_shift = 32
+        for s in range(-max_shift, max_shift + 1):
+            if s < 0:
+                a_s = a_n[-s:]
+                b_s = b_n[: a_n.size + s]
+            elif s > 0:
+                a_s = a_n[: a_n.size - s]
+                b_s = b_n[s:]
+            else:
+                a_s = a_n
+                b_s = b_n
+            m = a_s.size
+            if m >= 64:
+                sc = float(np.dot(a_s, b_s) / m)
+                if sc > best_sc:
+                    best_sc = sc
+                    best_shift = s
+
+        # --- build row_line using a locked half-length (prevents row-to-row jitter) ---
+        if best_shift < 0:
+            fh_tmp = first_half[-best_shift:]
+            rr_tmp = rev_retrace[: first_half.size + best_shift]
+        elif best_shift > 0:
+            fh_tmp = first_half[: first_half.size - best_shift]
+            rr_tmp = rev_retrace[best_shift:]
+        else:
+            fh_tmp = first_half
+            rr_tmp = rev_retrace
+
+        # lock the usable length for this frame
+        global _half_len_locked
+        try:
+            _half_len_locked
+        except NameError:
+            _half_len_locked = min(fh_tmp.size, rr_tmp.size)
+        if row_idx == 0:
+            _half_len_locked = min(fh_tmp.size, rr_tmp.size)
+
+        L = int(max(64, min(_half_len_locked, fh_tmp.size, rr_tmp.size)))
+        fh = fh_tmp[:L]
+        rr = rr_tmp[:L]
+
+
+        # optional conservative trims before resampling
+        head_trim_cfg = int(getattr(settings, "line_head_trim", 0))
+        tail_trim_cfg = int(getattr(settings, "line_tail_trim", 0))
+        head_trim = min(head_trim_cfg, max(0, m_len // 6))
+        tail_trim = min(tail_trim_cfg, max(0, m_len // 6))
+        if head_trim + tail_trim < m_len:
+            fh = fh[head_trim: m_len - tail_trim]
+            rr = rr[head_trim: m_len - tail_trim]
+
+        # resample each half to exactly w columns
+        if fh.size <= 1 or rr.size <= 1:
+            row_line = np.zeros(w, dtype=np.float64)
+            trace_w = row_line
+            retr_w  = row_line
+        else:
+            tgt   = np.linspace(0.0, float(min(fh.size, rr.size) - 1), num=w, dtype=np.float64)
+            src_f = np.arange(fh.size, dtype=np.float64)
+            src_r = np.arange(rr.size, dtype=np.float64)
+            trace_w = np.interp(tgt, src_f, fh)
+            retr_w  = np.interp(tgt, src_r, rr)
+
+        use_half = "TRACE"
+        row_line = trace_w
+
+
+        dz = row_line[1::2] - row_line[0::2]
+        cz = float(np.std(dz)) if dz.size else 0.0
+        if buffer_index < 4 and board_index == 0 and i == 0:
+            print(f"[HALF] buf={buffer_index} row={row_idx} use={use_half} chevron_metric={cz:.2f}")
+
+
+        # diagnostics
+        if buffer_index < 4 and board_index == 0 and i == 0:
+            print(f"[RESAMPLE] buf={buffer_index} row={row_idx} turn_idx={turn_idx} "
+                f"shift={best_shift} corr={best_sc:.3f} fh={fh.size} rr={rr.size} -> w={w}")
+
+
+
+        # ------------------- write to image -------------------
+        idx = int(np.sum(total_enabled[:board_index])) + i
+        data.data[idx][row_idx, :] = row_line
+
+        # diagnostics
+        if buffer_index < 4 and board_index == 0 and i == 0:
+            mn = float(np.nanmin(row_line))
+            mx = float(np.nanmax(row_line))
+            print(f"[ROW] b={buffer_index} row={row_idx} N={N} fh={fh.size} rr={rr.size} w={w} "
+                f"min={mn:.1f} max={mx:.1f}")
+
+
+        i += 1
+
+    return data
+
+
+
+
+
+
+
+imaging_timebin_line = LiveProcessingInterface[PiezoExperimentSettings].from_function(
+    _imaging_timebin_line
+)
