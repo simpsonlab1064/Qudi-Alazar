@@ -113,7 +113,7 @@ class PiezoExperimentSettings(ImagingExperimentSettings):
             a_wave_off=a_wave_off,
             fast_wave_b_pulses=fast_wave_b_pulses,
             fast_wave_ramp_steps=1024,  # 64 kHz ext clock → 31.25 Hz triangle for full period (trace+retrace), 2 pulses/pixel at width=512
-            fast_wave_scans_per_slow=2,
+            fast_wave_scans_per_slow=1,
             slow_wave_ramp_steps=self.height,
             slow_wave_scans_per_trigger=self.num_frames,
             slow_wave_enable_mode=self.piezo_settings.slow_wave_enable_mode,
@@ -454,7 +454,7 @@ class PiezoLogic(BaseAlazarLogic[PiezoExperimentSettings]):
         Therefore: samples_per_record = 2 * fast_steps = 2048 for fast_steps=1024.
         """
         steps = int(getattr(self._settings.piezo_settings, "fast_wave_ramp_steps", self._settings.width))
-        return int(2 * steps)  # 2048 samples per full period at 64 kHz
+        return int(steps)  # 2048 samples per full period at 64 kHz
 
 
     def _calculate_total_samples(self, board_idx: int) -> int:

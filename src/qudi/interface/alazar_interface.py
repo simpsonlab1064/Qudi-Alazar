@@ -33,7 +33,7 @@ class Range(Enum):
 class AcquisitionMode(Enum):
     TRIGGERED_STREAMING = 0
     NPT = 1
-
+    NON_TRIGGERED_STREAMING = 1  # alias for backward compatibility
 
 class MeasurementType(Enum):
     GENERIC = 0
